@@ -18,6 +18,17 @@ CASES = {
         ("gs://wiemip/teminputs/new/wetland.nc", "vegetation.nc"),
         #("gs://wiemip/teminputs/new/ch4_inputs", "."),
         ("gs://wiemip/spinup_noFire_noWetland/climate_stable_150yr.nc", "historic-climate.nc")
+    ],
+    "Exp_spin_noFire_noWetland": [
+        ("gs://wiemip/teminputs/co2_cnst.nc", "co2.nc"),
+        ("gs://wiemip/teminputs/drainage_stable.nc", "drainage.nc"),
+        ("gs://wiemip/teminputs/explicit-fire_stable.nc", "historic-explicit-fire.nc"),
+        ("gs://wiemip/teminputs/fri-fire_stable.nc", "fri-fire.nc"),
+        ("gs://wiemip/teminputs/new/run-mask2.nc", "run-mask.nc"),
+        ("gs://wiemip/teminputs/new/texture.nc", "soil-texture.nc"),
+        ("gs://wiemip/teminputs/new/topo.nc", "topo.nc"),
+        ("gs://wiemip/teminputs/vegetation1_stable.nc", "vegetation.nc"),
+        ("gs://wiemip/spinup_noFire_noWetland/climate_stable_150yr.nc", "historic-climate.nc")
     ]
     # Add more cases here in the future
 }
