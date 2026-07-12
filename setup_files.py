@@ -3,35 +3,27 @@ import os
 import subprocess
 import argparse
 import sys
+import csv
 import shutil
-import netCDF4 as nc
 
-CASES = {
-    "Special_spin_WetlandON": [
-        ("gs://wiemip/teminputs/co2_cnst.nc", "co2.nc"),
-        ("gs://wiemip/teminputs/drainage_stable.nc", "drainage.nc"),
-        ("gs://wiemip/teminputs/explicit-fire_stable.nc", "historic-explicit-fire.nc"),
-        ("gs://wiemip/teminputs/fri-fire_stable.nc", "fri-fire.nc"),
-        ("gs://wiemip/teminputs/new/run-mask2.nc", "run-mask.nc"),
-        ("gs://wiemip/teminputs/new/texture.nc", "soil-texture.nc"),
-        ("gs://wiemip/teminputs/new/topo.nc", "topo.nc"),
-        ("gs://wiemip/teminputs/new/wetland.nc", "vegetation.nc"),
-        #("gs://wiemip/teminputs/new/ch4_inputs", "."),
-        ("gs://wiemip/spinup_noFire_noWetland/climate_stable_150yr.nc", "historic-climate.nc")
-    ],
-    "Exp_spin_noFire_noWetland": [
-        ("gs://wiemip/teminputs/co2_cnst.nc", "co2.nc"),
-        ("gs://wiemip/teminputs/drainage_stable.nc", "drainage.nc"),
-        ("gs://wiemip/teminputs/explicit-fire_stable.nc", "historic-explicit-fire.nc"),
-        ("gs://wiemip/teminputs/fri-fire_stable.nc", "fri-fire.nc"),
-        ("gs://wiemip/teminputs/new/run-mask2.nc", "run-mask.nc"),
-        ("gs://wiemip/teminputs/new/texture.nc", "soil-texture.nc"),
-        ("gs://wiemip/teminputs/new/topo.nc", "topo.nc"),
-        ("gs://wiemip/teminputs/vegetation1_stable.nc", "vegetation.nc"),
-        ("gs://wiemip/spinup_noFire_noWetland/climate_stable_150yr.nc", "historic-climate.nc")
-    ]
-    # Add more cases here in the future
-}
+def load_cases_from_csv(csv_path):
+    cases = {}
+    with open(csv_path, mode='r', newline='') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        # headers: Simulation, run-mask.nc, historic-climate.nc, etc.
+        dest_names = headers[1:]
+        
+        for row in reader:
+            if not row:
+                continue
+            sim_name = row[0]
+            mappings = []
+            for i, src in enumerate(row[1:]):
+                dest = dest_names[i]
+                mappings.append((src, dest))
+            cases[sim_name] = mappings
+    return cases
 
 def main():
     parser = argparse.ArgumentParser(description="Setup experiment files from GCS.")
@@ -41,44 +33,64 @@ def main():
         default="/mnt/exacloud/ext_ejafarov_woodwellclimate_org",
         help="Base destination folder where the experiment folder will be created."
     )
+    # Hardcode the CSV file path
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "WIEMIP_SimulationInputFiles.csv")
+    if not os.path.exists(csv_path):
+        print(f"Error: CSV file not found at {csv_path}")
+        sys.exit(1)
+        
+    try:
+        cases = load_cases_from_csv(csv_path)
+    except Exception as e:
+        print(f"Error loading cases from CSV: {e}")
+        sys.exit(1)
+        
+    available_cases = ", ".join(cases.keys())
     
-    available_cases = ", ".join(CASES.keys())
+    # Add the simulation argument now that we have the choices
     parser.add_argument(
-        "--folder",
+        "--simulation",
         type=str,
-        default="Special_spin_WetlandON",
-        choices=list(CASES.keys()),
-        help=f"Target folder name to create inside the destination folder. Available cases: {available_cases}"
+        default="Special_spin_WetlandON" if "Special_spin_WetlandON" in cases else list(cases.keys())[0],
+        choices=list(cases.keys()),
+        help=f"Target simulation case to create inside the destination folder. Available cases: {available_cases}"
     )
     
-    # Check if a positional or specific flag like --Exp_spin_noFire was passed
-    # as a shorthand.
+    # Re-parse to get the simulation argument
     args, unknown = parser.parse_known_args()
     
-    # If the user passes something like --Exp_spin_noFire, we can treat it as the folder name.
+    # If the user passes something like --Exp_spin_noFire, we can treat it as the simulation name.
     for arg in unknown:
         if arg.startswith("--") and len(arg) > 2:
             potential_case = arg[2:]
-            if potential_case in CASES:
-                args.folder = potential_case
+            if potential_case in cases:
+                args.simulation = potential_case
             break
 
     base_dir = args.dest_folder
-    target_dir = os.path.join(base_dir, args.folder)
+    target_dir = os.path.join(base_dir, args.simulation)
 
     print(f"Creating target directory: {target_dir}")
     os.makedirs(target_dir, exist_ok=True)
 
-    if args.folder not in CASES:
-        print(f"Error: Unknown case '{args.folder}'. Available cases are: {available_cases}")
+    if args.simulation not in cases:
+        print(f"Error: Unknown case '{args.simulation}'. Available cases are: {available_cases}")
         sys.exit(1)
 
-    mappings = CASES[args.folder]
+    mappings = cases[args.simulation]
+    
+    # Check for missing files before starting copies
+    for src, dst_name in mappings:
+        if src in ["NA", "?????"]:
+            print(f"Error: Source file for '{dst_name}' is missing ('{src}') in case '{args.simulation}'.")
+            sys.exit(1)
+
+    is_const_sim = False
 
     for src, dst_name in mappings:
-        # Determine if source is directory for recursive copy
-        is_dir = src.endswith("ch4_inputs")
-        
+        if dst_name == "co2.nc" and src.endswith("co2_cnst.nc"):
+            is_const_sim = True
+            
         if dst_name == ".":
             dst_path = target_dir
         else:
@@ -86,11 +98,7 @@ def main():
             
         print(f"\nCopying {src} -> {dst_path}")
         
-        cmd = ["gsutil", "-m", "cp"]
-        if is_dir:
-            cmd.append("-r")
-            
-        cmd.extend([src, dst_path])
+        cmd = ["gsutil", "-m", "cp", src, dst_path]
         
         print(f"Running: {' '.join(cmd)}")
         try:
@@ -102,13 +110,17 @@ def main():
 
     print("\nAll files copied successfully.")
 
-    if args.folder == "Special_spin_WetlandON":
-        print("\nCreating ch4.nc based on co2.nc...")
+    if is_const_sim:
+        print("\nConstant simulation detected. Generating ch4.nc from co2.nc...")
         try:
             src_nc = os.path.join(target_dir, "co2.nc")
             dst_nc = os.path.join(target_dir, "ch4.nc")
             
+            # If a ch4.nc was downloaded from the CSV, this will overwrite it,
+            # which is what we want to ensure the dimensions match perfectly.
             shutil.copy2(src_nc, dst_nc)
+            
+            import netCDF4 as nc
             ds = nc.Dataset(dst_nc, "r+")
             
             ds.renameVariable('co2', 'ch4')
@@ -118,6 +130,7 @@ def main():
                 ch4_var.standard_name = ch4_var.standard_name.replace('CO2', 'CH4')
                 
             data = ch4_var[:]
+            # Replace the constant CO2 value (280.0) with the constant CH4 value (1015.0)
             data[data == 280.0] = 1015.0
             ch4_var[:] = data
             
@@ -125,6 +138,7 @@ def main():
             print("Successfully created ch4.nc with values updated from 280 to 1015.")
         except Exception as e:
             print(f"Error creating ch4.nc: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
