@@ -346,15 +346,21 @@ for var in var_names:
                     if do_merge:
                         wet_t = np.array(v_wet[t_start:t_end, ...], dtype=np.float32)
                         
+                        valid_t_len = wet_t.shape[0]
+                        
                         # Find valid wet data (netcdf4 might return masked array or raw array with fill_val)
                         if fill_val is not None:
                             wet_valid = (wet_t != fill_val) & ~np.isnan(wet_t)
                         else:
                             wet_valid = ~np.isnan(wet_t)
                         
-                        out_t[wet_valid] = (base_t[wet_valid] * veg_fraction_np[wet_valid]) + (wet_t[wet_valid] * (1.0 - veg_fraction_np[wet_valid]))
+                        base_t_slice = base_t[:valid_t_len, ...]
+                        out_t_slice = out_t[:valid_t_len, ...]
                         
-                        del wet_t, wet_valid
+                        merged_t = (base_t_slice * veg_fraction_np) + (wet_t * (1.0 - veg_fraction_np))
+                        out_t_slice[wet_valid] = merged_t[wet_valid]
+                        
+                        del wet_t, wet_valid, merged_t, base_t_slice, out_t_slice
                         
                     if unit_conv == 'g -> kg':
                         out_t *= 0.001
