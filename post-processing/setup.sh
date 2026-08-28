@@ -4,7 +4,7 @@
 source ~/dvmdostem-wiemip/post-processing/config.sh
 
 # Target directories expected by the postprocessing script
-OUTPUT_DIR="/mnt/disks/wiemip-data/output"
+export OUTPUT_DIR="/mnt/disks/wiemip-data/output"
 LOCAL_BASE_RUN="$OUTPUT_DIR/base_run"
 LOCAL_WET_RUN="$OUTPUT_DIR/wet_run"
 LOCAL_WIEMIP_OUTPUT="$OUTPUT_DIR/wiemip_output"

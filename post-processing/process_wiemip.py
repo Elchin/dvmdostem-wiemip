@@ -14,7 +14,7 @@ CONFIG_SH_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/config.s
 CSV_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/output_conversion_table.csv')
 VEG_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/vegetation1_stable.nc')
 
-OUTPUT_DIR = '/mnt/disks/wiemip-data/output'
+OUTPUT_DIR = os.environ.get('OUTPUT_DIR', '/mnt/disks/wiemip-data/output')
 LOCAL_BASE_RUN = os.path.join(OUTPUT_DIR, 'base_run')
 LOCAL_WET_RUN = os.path.join(OUTPUT_DIR, 'wet_run')
 LOCAL_WIEMIP_OUTPUT = os.path.join(OUTPUT_DIR, 'wiemip_output')
