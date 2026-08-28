@@ -1,0 +1,39 @@
+Variable Description,We can output,WIEMIP/TRENDY Name,WIEMIP Units,DVM-DOS-TEM Name,Special Processing Required ,TEM Units,Wetland Merge,,Unit Conversion (math),,,Variable Combination,,
+,,,,Gray text is a postprocessing internal variable name (multi-file composite variables),,,Type,Handled?,Needed,Handle,Handled?,Needed,Handled?,merge
+Active layer thickness,Yes,alt,m,ALD,,m,Standard (two-sided),,None,Copy unchanged,,None,N/A,1
+Nitrogen Inorganic (NH4+ and NO3-) in Soil (including below-ground litter),Yes,nInorgSoil,kg N m-2 ,AVLN,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
+CO2 Emission from Fire,Postprocess,fFire,kg C m-2 s-1,BURNC2AIR,BURNVEG2AIRC* + BURNSOIL2AIRC,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
+CO2 Emission from Cveg due to Fire,Yes,fFireCveg,kg C m-2 s-1,BURNVEG2AIRC,,g/m2/time,Single-sided weight (burn only),No,"g -> kg, mo -> s",custom,,None,,0
+Carbon emitted from peat fires,Yes*,ffirepeatTotal,kg C m-2 s-1,BURNSOIL2AIRC,,g/m2/time,Single-sided weight (burn only),No,"g -> kg, mo -> s",custom,,None,,0
+Wetland methane emissions,Yes,wetCH4,kg CH4 m-2 s-1,CH4EFFLUXTOT,,g/m2/time,Single-sided weight (wetland only),No,"g -> kg, mo -> s",custom,,None,N/A,0
+Carbon in Coarse Woody Debris,Yes,cCwd,kg C m-2,DWDC,,g/m2/time,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
+Total Evapo-Transpiration,Yes,evapotrans,kg m-2 s-1,EET,,mm/m2/time,Standard (two-sided),,"mm -> kg, day -> s",custom?,No,None,N/A,0
+Frozen layer thickness,Postprocessed,fdepth,m,FROZENDEPTH,Compute from soil temp and thickness by layer (LAYERDZ and TLAYER),Probably m,N/A,N/A,N/A,N/A,N/A,Multi-file,No,0
+Vegtype level GPP,Yes,gpppft,kg C m-2 s-1,GPP,GPP by PFT - preserve by-pft file,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,,,0
+Gross Primary Production,Postprocess,gpp,kg C m-2 s-1,GPPTOT,Sum GPP by PFT,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
+Autotrophic (Plant) Respiration,Postprocess,ra,kg C m-2 s-1,GPPMINUSNPP,GPP - NPP,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
+Vegtype level Leaf Area Index,Yes,laipft,,LAI,LAI by PFT - preserve by-pft file,m2/m2,Standard (two-sided),,ignore,N/A,N/A,,,0
+Leaf Area Index,Postprocess,lai,,LAITOT,Sum LAI by PFT,m2/m2,N/A,N/A,ignore,N/A,N/A,Sum across PFT,,0
+Total Carbon Flux from Vegetation Directly to Soil,Postprocess,fVegSoil,kg C m-2 s-1,LFTOTC,LFNVC + LFVC*,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
+net Nitrogen mineralisation,Yes,fNnetmin,kg N m-2 s-1,NETNMIN,,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,None,N/A,0
+Vegtype level NPP,Yes,npppft,kg C m-2 s-1,NPP,NPP by PFT - preserve by-pft file,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,,,0
+Net Primary Production,Postprocess,npp,kg C m-2 s-1,NPPTOT,Sum NPP by PFT,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
+Nitrogen uptake of Vegetation,Postprocessed,fNup,kg N m-2 s-1,NUPTAKETOT,NUPTAKEST + NUPTAKELAB,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
+Nitrogen Organic in Soil (including below-ground litter),Yes,nOrgSoil,kg N m-2 ,ORGN,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
+Total Runoff,Maybe,mrro,kg m-2 s-1,QRUNOFF,,ratio,Standard (two-sided),,None,N/A,,None,N/A,0
+Carbon Flux from individual soil layers,Yes,rhLayers,kg C m-2 s-1,RHSOM,RHSOM by layer - preserve by-layer file,g/m2/time,Standard (two-sided),,g -> kg,cf_units,,,,0
+Heterotrophic Respiration,Postprocess,rh,kg C m-2 s-1,RHSOMTOT,Sum RHSOM by layer,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
+Total snow depth,Yes,snowDepth,m,SNOWTHICK,,m,Standard (two-sided),,None,N/A,N/A,None,N/A,0
+Carbon in individual soil layers,Yes,cSoilLayers,kg C m-2,SOC,SOC by layer - preserve by-layer file,g/m2,Standard (two-sided),,g -> kg,cf_units,,,,0
+Carbon in Soil (including below-ground litter),Postprocess,cSoil,kg C m-2,SOCTOT,Sum SOC by layer.,g/m2,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
+Carbon in Soil above 1m,Yes,cSoilAbove1m,kg C m-2,SOC0_100cm,,g/m2,"Single-sided weight (base only, could forceably create wetland matching file)",No,g -> kg,cf_units,,,,0
+Carbon in Soil below 1m,Postprocess,cSoilBelow1m,kg C m-2,SOCBELOW1M,SOC - SOC0_100cm,g/m2,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
+Snow water equivalent,Yes,swe,kg m-2,SWE,,kg/m2,Standard (two-sided),,None,N/A,N/A,None,N/A,0
+Soil temperature per layer,Yes,soilT,K,TLAYER,,degree_C,Standard (two-sided),,C -> K,cf_units,,None (used in FROZENDEPTH),N/A,0
+Transpiration,Yes,tveg,kg m-2 s-1,TRANSPIRATION,,mm/day,Standard (two-sided),,"mm -> kg, day -> s",,,None,N/A,0
+Vegtype level Carbon in Vegetation,Yes,cVegpft,kg C m-2,VEGC,,g/m2,Standard (two-sided),,g -> kg,cf_units,,,,0
+Carbon in Vegetation,Postprocess,cVeg,kg C m-2,VEGCTOT,Sum by compartment &/or PFT,g/m2,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
+Nitrogen in Vegetation,Yes,nVeg,kg N m-2 ,VEGNTOT,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
+Soil moisture per layer,Yes,mrsoLayer,kg m-2,VWCLAYER,VWC by layer - preserve by-layer file,m3/m3,Standard (two-sided),,Volume -> kg/m2,custom,,,,0
+Soil moisture ,Postprocess,mrso,kg m-2,VWCTOT,Sum VWCLayer by layer,m3/m3,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
+Perched water table depth,Yes,wtd,m,WATERTAB,,m,Standard (two-sided),,None,N/A,N/A,None,N/A,0
