@@ -1,39 +1,42 @@
-Variable Description,We can output,WIEMIP/TRENDY Name,WIEMIP Units,DVM-DOS-TEM Name,Special Processing Required ,TEM Units,Wetland Merge,,Unit Conversion (math),,,Variable Combination,,
-,,,,Gray text is a postprocessing internal variable name (multi-file composite variables),,,Type,Handled?,Needed,Handle,Handled?,Needed,Handled?,merge
-Active layer thickness,Yes,alt,m,ALD,,m,Standard (two-sided),,None,Copy unchanged,,None,N/A,1
-Nitrogen Inorganic (NH4+ and NO3-) in Soil (including below-ground litter),Yes,nInorgSoil,kg N m-2 ,AVLN,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
-CO2 Emission from Fire,Postprocess,fFire,kg C m-2 s-1,BURNC2AIR,BURNVEG2AIRC* + BURNSOIL2AIRC,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
-CO2 Emission from Cveg due to Fire,Yes,fFireCveg,kg C m-2 s-1,BURNVEG2AIRC,,g/m2/time,Single-sided weight (burn only),No,"g -> kg, mo -> s",custom,,None,,0
-Carbon emitted from peat fires,Yes*,ffirepeatTotal,kg C m-2 s-1,BURNSOIL2AIRC,,g/m2/time,Single-sided weight (burn only),No,"g -> kg, mo -> s",custom,,None,,0
-Wetland methane emissions,Yes,wetCH4,kg CH4 m-2 s-1,CH4EFFLUXTOT,,g/m2/time,Single-sided weight (wetland only),No,"g -> kg, mo -> s",custom,,None,N/A,0
-Carbon in Coarse Woody Debris,Yes,cCwd,kg C m-2,DWDC,,g/m2/time,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
-Total Evapo-Transpiration,Yes,evapotrans,kg m-2 s-1,EET,,mm/m2/time,Standard (two-sided),,"mm -> kg, day -> s",custom?,No,None,N/A,0
-Frozen layer thickness,Postprocessed,fdepth,m,FROZENDEPTH,Compute from soil temp and thickness by layer (LAYERDZ and TLAYER),Probably m,N/A,N/A,N/A,N/A,N/A,Multi-file,No,0
-Vegtype level GPP,Yes,gpppft,kg C m-2 s-1,GPP,GPP by PFT - preserve by-pft file,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,,,0
-Gross Primary Production,Postprocess,gpp,kg C m-2 s-1,GPPTOT,Sum GPP by PFT,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
-Autotrophic (Plant) Respiration,Postprocess,ra,kg C m-2 s-1,GPPMINUSNPP,GPP - NPP,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
-Vegtype level Leaf Area Index,Yes,laipft,,LAI,LAI by PFT - preserve by-pft file,m2/m2,Standard (two-sided),,ignore,N/A,N/A,,,0
-Leaf Area Index,Postprocess,lai,,LAITOT,Sum LAI by PFT,m2/m2,N/A,N/A,ignore,N/A,N/A,Sum across PFT,,0
-Total Carbon Flux from Vegetation Directly to Soil,Postprocess,fVegSoil,kg C m-2 s-1,LFTOTC,LFNVC + LFVC*,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
-net Nitrogen mineralisation,Yes,fNnetmin,kg N m-2 s-1,NETNMIN,,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,None,N/A,0
-Vegtype level NPP,Yes,npppft,kg C m-2 s-1,NPP,NPP by PFT - preserve by-pft file,g/m2/time,Standard (two-sided),,"g -> kg, mo -> s",custom,,,,0
-Net Primary Production,Postprocess,npp,kg C m-2 s-1,NPPTOT,Sum NPP by PFT,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
-Nitrogen uptake of Vegetation,Postprocessed,fNup,kg N m-2 s-1,NUPTAKETOT,NUPTAKEST + NUPTAKELAB,g/m2/time,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
-Nitrogen Organic in Soil (including below-ground litter),Yes,nOrgSoil,kg N m-2 ,ORGN,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
-Total Runoff,Maybe,mrro,kg m-2 s-1,QRUNOFF,,ratio,Standard (two-sided),,None,N/A,,None,N/A,0
-Carbon Flux from individual soil layers,Yes,rhLayers,kg C m-2 s-1,RHSOM,RHSOM by layer - preserve by-layer file,g/m2/time,Standard (two-sided),,g -> kg,cf_units,,,,0
-Heterotrophic Respiration,Postprocess,rh,kg C m-2 s-1,RHSOMTOT,Sum RHSOM by layer,g/m2/time,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
-Total snow depth,Yes,snowDepth,m,SNOWTHICK,,m,Standard (two-sided),,None,N/A,N/A,None,N/A,0
-Carbon in individual soil layers,Yes,cSoilLayers,kg C m-2,SOC,SOC by layer - preserve by-layer file,g/m2,Standard (two-sided),,g -> kg,cf_units,,,,0
-Carbon in Soil (including below-ground litter),Postprocess,cSoil,kg C m-2,SOCTOT,Sum SOC by layer.,g/m2,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
-Carbon in Soil above 1m,Yes,cSoilAbove1m,kg C m-2,SOC0_100cm,,g/m2,"Single-sided weight (base only, could forceably create wetland matching file)",No,g -> kg,cf_units,,,,0
-Carbon in Soil below 1m,Postprocess,cSoilBelow1m,kg C m-2,SOCBELOW1M,SOC - SOC0_100cm,g/m2,N/A,N/A,N/A,N/A,N/A,Multi-file,,0
-Snow water equivalent,Yes,swe,kg m-2,SWE,,kg/m2,Standard (two-sided),,None,N/A,N/A,None,N/A,0
-Soil temperature per layer,Yes,soilT,K,TLAYER,,degree_C,Standard (two-sided),,C -> K,cf_units,,None (used in FROZENDEPTH),N/A,0
-Transpiration,Yes,tveg,kg m-2 s-1,TRANSPIRATION,,mm/day,Standard (two-sided),,"mm -> kg, day -> s",,,None,N/A,0
-Vegtype level Carbon in Vegetation,Yes,cVegpft,kg C m-2,VEGC,,g/m2,Standard (two-sided),,g -> kg,cf_units,,,,0
-Carbon in Vegetation,Postprocess,cVeg,kg C m-2,VEGCTOT,Sum by compartment &/or PFT,g/m2,N/A,N/A,N/A,N/A,N/A,Sum across PFT,,0
-Nitrogen in Vegetation,Yes,nVeg,kg N m-2 ,VEGNTOT,,g/m2,Standard (two-sided),,g -> kg,cf_units,,None,N/A,0
-Soil moisture per layer,Yes,mrsoLayer,kg m-2,VWCLAYER,VWC by layer - preserve by-layer file,m3/m3,Standard (two-sided),,Volume -> kg/m2,custom,,,,0
-Soil moisture ,Postprocess,mrso,kg m-2,VWCTOT,Sum VWCLayer by layer,m3/m3,N/A,N/A,N/A,N/A,N/A,Sum across layer,,0
-Perched water table depth,Yes,wtd,m,WATERTAB,,m,Standard (two-sided),,None,N/A,N/A,None,N/A,0
+﻿Variable Description,WIEMIP_Name,WIEMIP Units,TEM Units,WIEMIP Frequency,VarClass,Variable1,Variable2,Operation,Variable Available,Unit Conversions,g_to_kg,Per_mo_to_Per_s,Per_day_to_Per_s,C_to_K,mm_to_kg,VWC_to_kg,Merge,
+Active layer thickness,alt,m,m,monthly,1_Units_only,ALD,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,merge: merigng base and wet(fire) runs
+Nitrogen Inorganic (NH4+ and NO3-) in Soil (including below-ground litter),nInorgSoil,kg N m-2 ,g/m2,annual,1_Units_only,AVLN,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+CO2 Emission from Fire,fFire,kg C m-2 s-1,g/m2/mo,monthly,4_Math,BURNVEG2AIRC,BURNSOIL2AIRC,Add,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
+CO2 Emission from Cveg due to Fire,fFireCveg,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,BURNVEG2AIRC,NA,NA,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
+Carbon emitted from peat fires,ffirepeatTotal,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,BURNSOIL2AIRC,NA,NA,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
+Wetland methane emissions,wetCH4,kg CH4 m-2 s-1,g/m2/mo,monthly,1_Units_only,CH4EFFLUXTOT,NA,NA,Wetland_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
+Carbon in Coarse Woody Debris,cCwd,kg C m-2,g/m2/yr,annual,1_Units_only,DWDC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Total Evapo-Transpiration,evapotrans,kg m-2 s-1,mm/m2/mo,monthly,1_Units_only,EET,NA,NA,All,"mm -> kg, mo -> s",FALSE,TRUE,FALSE,FALSE,TRUE,FALSE,1,
+Frozen layer thickness,fdepth,m,Probably m,monthly,5_Ignore_for_now,NA,NA,NA,All,N/A,NA,NA,FALSE,FALSE,FALSE,FALSE,1,
+Vegtype level GPP,gpppft,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,GPP,NA,NA,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Gross Primary Production,gpp,kg C m-2 s-1,g/m2/mo,monthly,2_Sum_by_PFT,GPP,NA,NA,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Autotrophic (Plant) Respiration,ra,kg C m-2 s-1,g/m2/mo,monthly,4_Math,gpp,npp,Subtract,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Vegtype level Leaf Area Index,laipft,,m2/m2,monthly,1_Units_only,LAI,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Leaf Area Index,lai,,m2/m2,monthly,2_Sum_by_PFT,LAI,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Total Carbon Flux from Vegetation Directly to Soil,fVegSoil,kg C m-2 s-1,g/m2/mo,monthly,4_Math,LFNVC ,LFVC,add,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+net Nitrogen mineralisation,fNnetmin,kg N m-2 s-1,g/m2/mo,monthly,1_Units_only,NETNMIN,NA,NA,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Vegtype level NPP,npppft,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,NPP,NA,NA,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Net Primary Production,npp,kg C m-2 s-1,g/m2/mo,monthly,2_Sum_by_PFT,NPP,NA,NA,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Nitrogen uptake of Vegetation,fNup,kg N m-2 s-1,g/m2/mo,monthly,4_Math,NUPTAKEST,NUPTAKELAB,Add,All,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Nitrogen Organic in Soil (including below-ground litter),nOrgSoil,kg N m-2 ,g/m2,annual,1_Units_only,ORGN,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Total Runoff,mrro,kg m-2 s-1,ratio,monthly,5_Ignore_for_now,NA,NA,NA,All,None,NA,NA,FALSE,FALSE,FALSE,FALSE,1,
+Carbon Flux from individual soil layers,rhLayers,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,RHSOM,NA,NA,All,g -> kg,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Heterotrophic Respiration,rh,kg C m-2 s-1,g/m2/mo,monthly,3_Sum_by_layer,RHSOM,NA,NA,All,g -> kg,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
+Total snow depth,snowDepth,m,m,monthly,1_Units_only,SNOWTHICK,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Carbon in individual soil layers,cSoilLayers,kg C m-2,g/m2,annual,1_Units_only,SOC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Carbon in Soil (including below-ground litter),cSoil,kg C m-2,g/m2,annual,3_Sum_by_layer,SOC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Carbon in Soil above 1m,cSoilAbove1m,kg C m-2,g/m2,annual,1_Units_only,SOC0_100cm,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Carbon in Soil below 1m,cSoilBelow1m,kg C m-2,g/m2,annual,4_Math,cSoil,SOC0_100cm,Subtract,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Snow water equivalent,swe,kg m-2,kg/m2,monthly,1_Units_only,SWE,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Soil temperature per layer,soilT,K,degree_C,monthly,1_Units_only,TLAYER,NA,NA,All,C -> K,FALSE,FALSE,FALSE,TRUE,FALSE,FALSE,1,
+Transpiration,tveg,kg m-2 s-1,mm/day,monthly,1_Units_only,TRANSPIRATION,NA,NA,All,"mm -> kg, day -> s",FALSE,FALSE,TRUE,FALSE,TRUE,FALSE,1,
+Vegtype level Carbon in Vegetation,cVegpft,kg C m-2,g/m2,annual,1_Units_only,VEGC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Carbon in Vegetation,cVeg,kg C m-2,g/m2,annual,2_Sum_by_PFT,VEGC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Nitrogen in Vegetation,nVeg,kg N m-2 ,g/m2,annual,1_Units_only,VEGNTOT,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Soil moisture per layer,mrsoLayer,kg m-2,m3/m3,monthly,1_Units_only,VWCLAYER,NA,NA,All,Volume -> kg/m2,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,1,
+Soil moisture ,mrso,kg m-2,m3/m3,monthly,3_Sum_by_layer,VWCLAYER,NA,NA,All,Volume -> kg/m2,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,1,
+Perched water table depth,wtd,m,m,monthly,1_Units_only,WATERTAB,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
+Net Biospheric Production,nbp,kg C m-2 s-1,NA,monthly,5_Ignore_for_now,NA,NA,NA,All,TBD,NA,NA,FALSE,FALSE,FALSE,FALSE,1,
+Vegtype level NBP,nbppft,kg C m-2 s-1,NA,monthly,5_Ignore_for_now,NA,NA,NA,All,TBD,NA,NA,FALSE,FALSE,FALSE,FALSE,1,
+CH4 Emission from Fire,fCH4Fire,kg CH4 m-2 s-1,NA,monthly,5_Ignore_for_now,NA,NA,NA,Fire_only,TBD,NA,NA,FALSE,FALSE,FALSE,FALSE,0,
+Total methane flux,ch4,kg CH4 m-2 s-1,NA,monthly,5_Ignore_for_now,NA,NA,NA,Wetland_only,TBD,NA,NA,FALSE,FALSE,FALSE,FALSE,0,

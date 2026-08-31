@@ -7,9 +7,10 @@ BASE_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_FireOn/Special_b
 # Meta parameters for naming convention
 export GCM_PATTERN="bgc"
 export EXPERIMENT="FireOn"
+export PROCESS="noProcess"
 
 # The variables to process and copy
-VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI NETNMIN NPP ORGN QRUNOFF RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB)
+VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
 
 # Time aggregation settings
 export AGG_ALD="mean"
@@ -21,8 +22,12 @@ export AGG_DWDC="mean"
 export AGG_EET="sum"
 export AGG_GPP="sum"
 export AGG_LAI="mean"
+export AGG_LFNVC="sum"
+export AGG_LFVC="sum"
 export AGG_NETNMIN="sum"
 export AGG_NPP="sum"
+export AGG_NUPTAKELAB="sum"
+export AGG_NUPTAKEST="sum"
 export AGG_ORGN="mean"
 export AGG_QRUNOFF="sum"
 export AGG_RHSOM="sum"
