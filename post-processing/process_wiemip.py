@@ -15,7 +15,7 @@ xr.set_options(keep_attrs=True)
 # Configuration
 CONFIG_SH_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/config.sh')
 CSV_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/output_conversion_table.csv')
-VEG_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/vegetation1_stable.nc')
+VEG_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/wetland.nc')
 
 OUTPUT_DIR = os.environ.get('OUTPUT_DIR', '/mnt/disks/wiemip-data/output')
 LOCAL_BASE_RUN = os.path.join(OUTPUT_DIR, 'base_run')
