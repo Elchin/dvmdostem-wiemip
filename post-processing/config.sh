@@ -4,6 +4,9 @@
 WET_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_WetlandOn_split/all_merged"
 BASE_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_FireOn/Special_bgc_FireOn_1_Merged1"
 
+# Target directories expected by the postprocessing script
+export OUTPUT_DIR="/mnt/disks/wiemip-data/test"
+
 # Meta parameters for naming convention
 export GCM_PATTERN="bgc"
 export EXPERIMENT="FireOn"
