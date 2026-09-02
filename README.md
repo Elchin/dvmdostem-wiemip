@@ -27,7 +27,7 @@ python3 setup_overshoot_sim_files.py --simulation <SIMULATION_NAME> --dest-folde
 - `--simulation`: **(Required/Inferred)** The target simulation case to create. The script will create a sub-directory with this exact name inside the destination folder.
   - *Note:* You can also pass the simulation name directly as a flag, e.g., `--Special_spin_WetlandOn`, which the script will automatically recognize.
 - `--dest-folder`: **(Optional)** The base destination directory where the simulation folder will be created. 
-  - Defaults to `/mnt/exacloud/ext_ejafarov_woodwellclimate_org`.
+  - Defaults to `/mnt/exacloud/$USER` (e.g. `/mnt/exacloud/ejafarov_woodwellclimate_org`).
 
 ### Output Structure
 

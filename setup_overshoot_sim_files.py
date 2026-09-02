@@ -52,7 +52,7 @@ def main():
     parser.add_argument(
         "--dest-folder",
         type=str,
-        default="/mnt/exacloud/ext_ejafarov_woodwellclimate_org",
+        default=f"/mnt/exacloud/{os.environ.get('USER', 'ejafarov_woodwellclimate_org')}",
         help="Base destination folder where the experiment folder will be created."
     )
     # Hardcode the CSV file path

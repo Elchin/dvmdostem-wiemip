@@ -30,11 +30,11 @@ def main():
     parser.add_argument(
         "--dest-folder",
         type=str,
-        default="/mnt/exacloud/ext_ejafarov_woodwellclimate_org",
+        default=f"/mnt/exacloud/{os.environ.get('USER', 'ejafarov_woodwellclimate_org')}",
         help="Base destination folder where the experiment folder will be created."
     )
     # Hardcode the CSV file path
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "WIEMIP_SimulationInputFiles.csv")
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "WIEMIP_1pctCO2_SimulationInputFiles.csv")
     if not os.path.exists(csv_path):
         print(f"Error: CSV file not found at {csv_path}")
         sys.exit(1)
