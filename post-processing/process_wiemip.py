@@ -368,6 +368,12 @@ def process_case(case_config):
     LOCAL_WIEMIP_OUTPUT = case_config['local_wiemip_output']
     FIGURES_DIR = case_config['figures_dir']
     
+    # Download files if paths are provided
+    if case_config.get('base_gs_path'):
+        download_files(case_config['base_gs_path'], LOCAL_BASE_RUN, case_config['var_names'], case_config['skip_download_if_exists'])
+    if case_config.get('combine_flag') and case_config.get('wet_gs_path'):
+        download_files(case_config['wet_gs_path'], LOCAL_WET_RUN, case_config['var_names'], case_config['skip_download_if_exists'])
+        
     os.makedirs(LOCAL_WIEMIP_OUTPUT, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
@@ -403,7 +409,7 @@ def process_case(case_config):
         else:
             freq_str = freq_raw
             
-        nc_filename = f"DVMDOSTEM_{gcm_pattern}_{experiment}_{wiemip_name}_{freq_str}{process_suffix}_05.nc"
+        nc_filename = f"{case_config['experiment_prefix']}{process_suffix}_{wiemip_name}_{freq_str}_05.nc"
         out_file = os.path.join(LOCAL_WIEMIP_OUTPUT, nc_filename)
         
         if case_config['skip_download_if_exists'] and os.path.exists(out_file):
@@ -827,6 +833,7 @@ def main():
             except ValueError:
                 print(f"Warning: PROCESS_ROWS '{config['process_rows']}' is not an integer. Processing all rows.")
                 
+        case_configs = []
         for row in cases_to_process:
             experiment_prefix = row[0].strip()
             base_run_name = row[1].strip()
@@ -842,16 +849,12 @@ def main():
             base_gs_path = path_map[base_run_name]
             wet_gs_path = path_map.get(wet_run_name, None)
             
-            case_output_dir = os.path.join(config['OUTPUT_DIR'], experiment_prefix)
+            case_output_dir = os.path.join(config['OUTPUT_DIR'], f"{experiment_prefix}{process_suffix}")
             local_base_run = os.path.join(case_output_dir, 'base_run')
             local_wet_run = os.path.join(case_output_dir, 'wet_run')
             local_wiemip_output = os.path.join(case_output_dir, 'wiemip_output')
             figures_dir = os.path.join(case_output_dir, 'figures')
             
-            download_files(base_gs_path, local_base_run, config['var_names'], config['skip_download_if_exists'])
-            if combine_flag and wet_gs_path:
-                download_files(wet_gs_path, local_wet_run, config['var_names'], config['skip_download_if_exists'])
-                
             case_config = {
                 'experiment_prefix': experiment_prefix,
                 'local_base_run': local_base_run,
@@ -865,10 +868,26 @@ def main():
                 'experiment': config['experiment'],
                 'combine_flag': combine_flag,
                 'skip_download_if_exists': config['skip_download_if_exists'],
-                'process_suffix': process_suffix
+                'process_suffix': process_suffix,
+                'base_gs_path': base_gs_path,
+                'wet_gs_path': wet_gs_path,
+                'var_names': config['var_names']
             }
+            case_configs.append(case_config)
             
-            process_case(case_config)
+        if len(case_configs) > 1:
+            from concurrent.futures import ProcessPoolExecutor
+            # Limit workers to 2 to prevent Out-Of-Memory (OOM) errors on 62GB RAM,
+            # as variables like TLAYER can consume >10GB each during merging.
+            max_workers = 2
+            print(f"\nProcessing {len(case_configs)} cases in parallel using {max_workers} workers...")
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Wrap in list() to force evaluation and catch any BrokenProcessPool errors
+                # if a worker is killed by the OS OOM killer.
+                list(executor.map(process_case, case_configs))
+        else:
+            for case_config in case_configs:
+                process_case(case_config)
             
     else:
         print("Running in single case mode...")
