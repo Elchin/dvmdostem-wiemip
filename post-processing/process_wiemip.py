@@ -8,140 +8,135 @@ import cartopy.crs as ccrs
 import netCDF4 as nc
 import gc
 import psutil
+import subprocess
+import time
+import shutil
 
 # Force xarray to keep data on disk when doing large reductions
 xr.set_options(keep_attrs=True)
 
 # Configuration
-CONFIG_SH_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/config.sh')
-CSV_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/output_conversion_table.csv')
-VEG_PATH = os.path.expanduser('~/dvmdostem-wiemip/post-processing/wetland.nc')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_SH_PATH = os.path.join(SCRIPT_DIR, 'config.sh')
+CSV_PATH = os.path.join(SCRIPT_DIR, 'output_conversion_table.csv')
+VEG_PATH = os.path.join(SCRIPT_DIR, 'wetland.nc')
+PATH_GS_MERGE_CSV = os.path.join(SCRIPT_DIR, 'path_gs_merge.csv')
+PROCESSING_COMBINE_LIST_CSV = os.path.join(SCRIPT_DIR, 'processing_combine_list.csv')
 
-OUTPUT_DIR = '/mnt/disks/wiemip-data/output'
-if os.path.exists(CONFIG_SH_PATH):
-    with open(CONFIG_SH_PATH, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('export OUTPUT_DIR='):
-                OUTPUT_DIR = line.split('=', 1)[1].strip('\'"')
-                break
-
-OUTPUT_DIR = os.environ.get('OUTPUT_DIR', OUTPUT_DIR)
-LOCAL_BASE_RUN = os.path.join(OUTPUT_DIR, 'base_run')
-LOCAL_WET_RUN = os.path.join(OUTPUT_DIR, 'wet_run')
-LOCAL_WIEMIP_OUTPUT = os.path.join(OUTPUT_DIR, 'wiemip_output')
-FIGURES_DIR = os.path.join(OUTPUT_DIR, 'figures')
-
-os.makedirs(LOCAL_WIEMIP_OUTPUT, exist_ok=True)
-os.makedirs(FIGURES_DIR, exist_ok=True)
-
-# Parse VAR_NAMES and aggregations from config.sh
-var_names = []
-time_aggregation = {}
-gcm_pattern = "GCM"
-experiment = "EXP"
-process_type = "noProcess"
-with open(CONFIG_SH_PATH, 'r') as f:
-    for line in f:
-        line = line.strip()
-        if line.startswith('VAR_NAMES='):
-            content = line.split('=')[1].strip('()\'"')
-            var_names = content.split()
-        elif line.startswith('export AGG_'):
-            parts = line.split('=')
-            var_part = parts[0].replace('export AGG_', '')
-            val_part = parts[1].strip('\'"')
-            time_aggregation[var_part] = val_part
-        elif line.startswith('export GCM_PATTERN='):
-            gcm_pattern = line.split('=')[1].strip('\'"')
-        elif line.startswith('export EXPERIMENT='):
-            experiment = line.split('=')[1].strip('\'"')
-        elif line.startswith('export PROCESS='):
-            process_type = line.split('=')[1].strip('\'"')
-
-# Parse CSV
-var_config = {}
-math_vars = []
-all_rows = []
-
-with open(CSV_PATH, 'r') as f:
-    reader = csv.reader(f)
-    header = next(reader) # header 1
+def parse_config():
+    config = {
+        'OUTPUT_DIR': '/mnt/disks/wiemip-data/output',
+        'var_names': [],
+        'time_aggregation': {},
+        'gcm_pattern': "GCM",
+        'experiment': "EXP",
+        'process_type': "noProcess",
+        'process_from_list': False,
+        'process_rows': "all",
+        'skip_download_if_exists': False
+    }
+    if os.path.exists(CONFIG_SH_PATH):
+        with open(CONFIG_SH_PATH, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('export OUTPUT_DIR='):
+                    config['OUTPUT_DIR'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('VAR_NAMES='):
+                    content = line.split('=', 1)[1].strip('()\'"')
+                    config['var_names'] = content.split()
+                elif line.startswith('export AGG_'):
+                    parts = line.split('=')
+                    var_part = parts[0].replace('export AGG_', '')
+                    val_part = parts[1].strip('\'"')
+                    config['time_aggregation'][var_part] = val_part
+                elif line.startswith('export GCM_PATTERN='):
+                    config['gcm_pattern'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export EXPERIMENT='):
+                    config['experiment'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export PROCESS='):
+                    config['process_type'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export PROCESS_FROM_LIST='):
+                    val = line.split('=', 1)[1].strip('\'"').lower()
+                    config['process_from_list'] = (val == 'true')
+                elif line.startswith('export PROCESS_ROWS='):
+                    config['process_rows'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export SKIP_DOWNLOAD_IF_EXISTS='):
+                    val = line.split('=', 1)[1].strip('\'"').lower()
+                    config['skip_download_if_exists'] = (val == 'true')
     
-    for row in reader:
-        if len(row) > 17:
-            var_class = row[5].strip()
-            if var_class == '5_Ignore_for_now':
-                continue
-            all_rows.append(row)
+    config['OUTPUT_DIR'] = os.environ.get('OUTPUT_DIR', config['OUTPUT_DIR'])
+    return config
 
-# First pass: add variables directly matching VAR_NAMES
-included_wiemip_names = set()
-for row in all_rows:
-    wiemip_name = row[1].strip()
-    variable1 = row[6].strip()
-    if variable1 in var_names or wiemip_name in var_names:
-        included_wiemip_names.add(wiemip_name)
-        # Also add variable1 to included set in case a math var depends on the TEM name directly
-        included_wiemip_names.add(variable1)
+def parse_csv(var_names):
+    var_config = {}
+    math_vars = []
+    all_rows = []
 
-# Second pass: add 4_Math variables if their dependencies are met
-for row in all_rows:
-    var_class = row[5].strip()
-    wiemip_name = row[1].strip()
-    variable1 = row[6].strip()
-    variable2 = row[7].strip()
-    
-    if var_class == '4_Math':
-        if variable1 in included_wiemip_names and variable2 in included_wiemip_names:
+    with open(CSV_PATH, 'r') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        
+        for row in reader:
+            if len(row) > 17:
+                var_class = row[5].strip()
+                if var_class == '5_Ignore_for_now':
+                    continue
+                all_rows.append(row)
+
+    included_wiemip_names = set()
+    for row in all_rows:
+        wiemip_name = row[1].strip()
+        variable1 = row[6].strip()
+        if variable1 in var_names or wiemip_name in var_names:
             included_wiemip_names.add(wiemip_name)
+            included_wiemip_names.add(variable1)
 
-# Now build the config
-for row in all_rows:
-    wiemip_name = row[1].strip()
-    if wiemip_name in included_wiemip_names:
+    for row in all_rows:
         var_class = row[5].strip()
-        conf = {
-            'description': row[0].strip(),
-            'wiemip_name': wiemip_name,
-            'wiemip_units': row[2].strip(),
-            'tem_units': row[3].strip(),
-            'frequency': row[4].strip(),
-            'var_class': var_class,
-            'variable1': row[6].strip(),
-            'variable2': row[7].strip(),
-            'operation': row[8].strip(),
-            'g_to_kg': row[11].strip().upper() == 'TRUE',
-            'per_mo_to_s': row[12].strip().upper() == 'TRUE',
-            'per_day_to_s': row[13].strip().upper() == 'TRUE',
-            'c_to_k': row[14].strip().upper() == 'TRUE',
-            'mm_to_kg': row[15].strip().upper() == 'TRUE',
-            'vwc_to_kg': row[16].strip().upper() == 'TRUE',
-            'merge': row[17].strip() == '1'
-        }
-        var_config[wiemip_name] = conf
+        wiemip_name = row[1].strip()
+        variable1 = row[6].strip()
+        variable2 = row[7].strip()
+        
         if var_class == '4_Math':
-            math_vars.append(wiemip_name)
+            if variable1 in included_wiemip_names and variable2 in included_wiemip_names:
+                included_wiemip_names.add(wiemip_name)
 
-# Sort the configuration so that 4_Math variables are processed last
-processing_order = [v for v in var_config.keys() if v not in math_vars] + math_vars
+    for row in all_rows:
+        wiemip_name = row[1].strip()
+        if wiemip_name in included_wiemip_names:
+            var_class = row[5].strip()
+            conf = {
+                'description': row[0].strip(),
+                'wiemip_name': wiemip_name,
+                'wiemip_units': row[2].strip(),
+                'tem_units': row[3].strip(),
+                'frequency': row[4].strip(),
+                'var_class': var_class,
+                'variable1': row[6].strip(),
+                'variable2': row[7].strip(),
+                'operation': row[8].strip(),
+                'g_to_kg': row[11].strip().upper() == 'TRUE',
+                'per_mo_to_s': row[12].strip().upper() == 'TRUE',
+                'per_day_to_s': row[13].strip().upper() == 'TRUE',
+                'c_to_k': row[14].strip().upper() == 'TRUE',
+                'mm_to_kg': row[15].strip().upper() == 'TRUE',
+                'vwc_to_kg': row[16].strip().upper() == 'TRUE',
+                'merge': row[17].strip() == '1'
+            }
+            var_config[wiemip_name] = conf
+            if var_class == '4_Math':
+                math_vars.append(wiemip_name)
 
-# Load vegetation data
-ds_veg = xr.open_dataset(VEG_PATH).rename({'X': 'x', 'Y': 'y'})
-veg_cov = ds_veg['veg_pct_cov'].drop_vars(['x', 'y'], errors='ignore')
-veg_fraction_np = (veg_cov.values * 0.01).astype(np.float32)
+    processing_order = [v for v in var_config.keys() if v not in math_vars] + math_vars
+    return var_config, processing_order
 
 def apply_unit_conversions(out_t, conf, days_in_month=None, layerdz=None):
     if conf['g_to_kg']:
         out_t *= 0.001
     if conf['mm_to_kg']:
-        # 1 mm = 1 kg/m2
-        pass # No numerical change, just unit change
+        pass
     if conf['per_mo_to_s']:
         if days_in_month is not None:
-            # Reshape days_in_month to broadcast over out_t
-            # out_t shape is usually (time, y, x) or (time, pft, y, x)
-            # days_in_month shape is (time,)
             dim_expand = [slice(None)] + [np.newaxis] * (out_t.ndim - 1)
             out_t /= (days_in_month[tuple(dim_expand)] * 86400.0)
         else:
@@ -151,12 +146,41 @@ def apply_unit_conversions(out_t, conf, days_in_month=None, layerdz=None):
     if conf['c_to_k']:
         out_t += 273.15
     if conf['vwc_to_kg'] and layerdz is not None:
-        # VWC is m3/m3. Multiply by layer thickness (m) and density of water (1000 kg/m3)
-        # layerdz shape is (time, layer, y, x)
         out_t *= (layerdz * 1000.0)
     return out_t
 
-def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
+def compute_ts_iteratively(da, chunk_size=120, has_pft=False, has_layer=False):
+    time_len = len(da.time) if 'time' in da.dims else 0
+    if time_len == 0:
+        if has_pft:
+            return da.mean(dim=['x', 'y'], skipna=True).sum(dim='pft', skipna=True, min_count=1).compute()
+        elif has_layer:
+            da_ts_0 = da.isel(layer=0).mean(dim=['x', 'y'], skipna=True).compute()
+            da_ts_N = da.isel(layer=-1).mean(dim=['x', 'y'], skipna=True).compute()
+            return (da_ts_0 + da_ts_N) / 2.0
+        else:
+            return da.mean(dim=['x', 'y'], skipna=True).compute()
+            
+    ts_chunks = []
+    print(f"    Computing timeseries iteratively in chunks of {chunk_size}...")
+    for t_start in range(0, time_len, chunk_size):
+        t_end = min(t_start + chunk_size, time_len)
+        da_chunk = da.isel(time=slice(t_start, t_end))
+        
+        if has_pft:
+            chunk_ts = da_chunk.mean(dim=['x', 'y'], skipna=True).sum(dim='pft', skipna=True, min_count=1).compute()
+        elif has_layer:
+            chunk_ts_0 = da_chunk.isel(layer=0).mean(dim=['x', 'y'], skipna=True).compute()
+            chunk_ts_N = da_chunk.isel(layer=-1).mean(dim=['x', 'y'], skipna=True).compute()
+            chunk_ts = (chunk_ts_0 + chunk_ts_N) / 2.0
+        else:
+            chunk_ts = da_chunk.mean(dim=['x', 'y'], skipna=True).compute()
+            
+        ts_chunks.append(chunk_ts)
+        
+    return xr.concat(ts_chunks, dim='time')
+
+def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg):
     if ds is None or var_name not in ds:
         for col_idx in range(3):
             ax = fig.add_subplot(3, 3, row_idx * 3 + col_idx + 1)
@@ -166,7 +190,6 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
 
     da = ds[var_name]
     
-    # "for GPP (time,pft,y,x), sum all pfts per month and then plot."
     if 'pft' in da.dims:
         time_len = len(da.time) if 'time' in da.dims else 0
         if time_len > 151:
@@ -185,9 +208,7 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
             da_first_map = da.sum(dim='pft', skipna=True, min_count=1).compute()
             da_last_map = da_first_map
 
-        # For the timeseries, we need the spatial mean across x and y. 
-        # Calculate spatial mean first (collapsing x,y) to massively reduce size, then sum PFTs
-        da_ts = da.mean(dim=['x', 'y'], skipna=True).sum(dim='pft', skipna=True, min_count=1).compute()
+        da_ts = compute_ts_iteratively(da, chunk_size=120, has_pft=True)
         
     elif 'layer' in da.dims:
         time_len = len(da.time) if 'time' in da.dims else 0
@@ -207,11 +228,7 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
             da_first_map = da.isel(layer=0).compute()
             da_last_map = da.isel(layer=-1).compute()
             
-        print(f"    Memory-optimized layer timeseries aggregation...")
-        # Average over depth 0 and depth N, and spatial x/y
-        da_ts_0 = da.isel(layer=0).mean(dim=['x', 'y'], skipna=True).compute()
-        da_ts_N = da.isel(layer=-1).mean(dim=['x', 'y'], skipna=True).compute()
-        da_ts = (da_ts_0 + da_ts_N) / 2.0
+        da_ts = compute_ts_iteratively(da, chunk_size=120, has_layer=True)
 
     else:
         time_len = len(da.time) if 'time' in da.dims else 0
@@ -231,12 +248,11 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
             da_first_map = da
             da_last_map = da
             
-        da_ts = da.mean(dim=['x', 'y'], skipna=True).compute()
+        da_ts = compute_ts_iteratively(da, chunk_size=120, has_pft=False, has_layer=False)
         
     shape_str = str(da.shape)
     
     if time_len > 0:
-        
         t0 = da.time[0].dt
         t1 = da.time[-1].dt
         
@@ -256,7 +272,6 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
         title0 = f"{title_prefix} - No time data"
         title1 = f"{title_prefix} - No time data"
     
-    # Subplot 1: Map of first year
     if time_len > 0 and da_first_map.ndim == 2:
         ax1 = fig.add_subplot(3, 3, row_idx * 3 + 1, projection=ccrs.NorthPolarStereo())
         ax1.set_extent([-180, 180, 45, 90], ccrs.PlateCarree())
@@ -273,7 +288,6 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
         else:
             ax1.text(0.5, 0.5, 'No time data', ha='center', va='center')
 
-    # Subplot 2: Map of last year
     if time_len > 0 and da_last_map.ndim == 2:
         ax2 = fig.add_subplot(3, 3, row_idx * 3 + 2, projection=ccrs.NorthPolarStereo())
         ax2.set_extent([-180, 180, 45, 90], ccrs.PlateCarree())
@@ -290,14 +304,11 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
         else:
             ax2.text(0.5, 0.5, 'No time data', ha='center', va='center')
     
-    # Subplot 3: Timeseries
     ax3 = fig.add_subplot(3, 3, row_idx * 3 + 3)
     
-    # Plot using original time coordinates for true timeseries
     try:
         da_ts.plot(ax=ax3)
     except Exception as e:
-        # Fallback to just values if dates cause issues
         ax3.plot(da_ts.values)
         ax3.set_xlabel('Time index')
         
@@ -309,8 +320,7 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units):
     ax3.set_title(ts_title)
     ax3.set_ylabel(units)
 
-# Helper to find the WIEMIP name for a given variable (which might be a TEM name or WIEMIP name)
-def get_wiemip_name(var_name):
+def get_wiemip_name(var_name, var_config):
     if var_name in var_config:
         return var_name
     for w_name, conf in var_config.items():
@@ -318,410 +328,570 @@ def get_wiemip_name(var_name):
             return w_name
     return var_name
 
-for wiemip_name in processing_order:
-    conf = var_config[wiemip_name]
-    var_class = conf['var_class']
-    variable1 = conf['variable1']
-    variable2 = conf['variable2']
-    merge = conf['merge']
-    
-    print(f"Processing {wiemip_name} (Class: {var_class})...")
-    
-    if var_class in ['1_Units_only', '2_Sum_by_PFT', '3_Sum_by_layer']:
-        # Find files
-        base_files = glob.glob(os.path.join(LOCAL_BASE_RUN, f"{variable1}_*tr*.nc"))
-        wet_files = glob.glob(os.path.join(LOCAL_WET_RUN, f"{variable1}_*tr*.nc"))
+def download_files(gs_path, local_dir, var_names, skip_if_exists):
+    os.makedirs(local_dir, exist_ok=True)
         
-        if not base_files:
-            print(f"No base file found for {variable1}")
+    print(f"Checking files to download from {gs_path} to {local_dir}...")
+    # We only need variables in var_names and LAYERDZ
+    vars_to_download = set(var_names)
+    vars_to_download.add("LAYERDZ")
+    
+    missing_vars = []
+    for var in sorted(vars_to_download):
+        if skip_if_exists and len(glob.glob(os.path.join(local_dir, f"{var}_*tr*.nc"))) > 0:
             continue
-            
-        do_merge = merge and bool(wet_files)
+        missing_vars.append(var)
         
-        with xr.open_dataset(base_files[0]) as ds_base:
-            dims = list(ds_base[variable1].dims)
-            num_times = len(ds_base.time) if 'time' in dims else 1
-            if 'time' in dims:
-                days_in_month = ds_base.time.dt.days_in_month.values
-            else:
-                days_in_month = None
+    if not missing_vars:
+        print(f"  All {len(vars_to_download)} variables already exist. Skipping download.")
+        return
+        
+    print(f"  Downloading {len(missing_vars)} missing variables in parallel...")
+    
+    # Construct a single gsutil command to download all missing variables at once
+    # gsutil -m cp gs://path/var1_*tr*.nc gs://path/var2_*tr*.nc ... local_dir/
+    cmd_parts = ["gsutil", "-m", "cp"]
+    for var in missing_vars:
+        cmd_parts.append(f"{gs_path}/{var}_*tr*.nc")
+    cmd_parts.append(f"{local_dir}/")
+    
+    # Run the command
+    cmd = " ".join(cmd_parts)
+    subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    print("  Download complete.")
 
-        if do_merge:
-            with xr.open_dataset(wet_files[0]) as ds_wet:
-                if 'time' in ds_wet.dims:
-                    wet_times = len(ds_wet.time)
-                    if wet_times < num_times:
-                        num_times = wet_times
-                        if 'time' in dims:
-                            days_in_month = days_in_month[:num_times]
+def process_case(case_config):
+    print(f"\n{'='*50}\nProcessing Case: {case_config['experiment_prefix']}\n{'='*50}")
+    
+    LOCAL_BASE_RUN = case_config['local_base_run']
+    LOCAL_WET_RUN = case_config['local_wet_run']
+    LOCAL_WIEMIP_OUTPUT = case_config['local_wiemip_output']
+    FIGURES_DIR = case_config['figures_dir']
+    
+    os.makedirs(LOCAL_WIEMIP_OUTPUT, exist_ok=True)
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+
+    ds_veg = xr.open_dataset(VEG_PATH).rename({'X': 'x', 'Y': 'y'})
+    veg_cov = ds_veg['veg_pct_cov'].drop_vars(['x', 'y'], errors='ignore')
+    veg_fraction_np = (veg_cov.values * 0.01).astype(np.float32)
+    
+    var_config = case_config['var_config']
+    processing_order = case_config['processing_order']
+    time_aggregation = case_config['time_aggregation']
+    
+    gcm_pattern = case_config['gcm_pattern']
+    experiment = case_config['experiment']
+    
+    # Filename formatting
+    process_suffix = case_config.get('process_suffix', '')
+    
+    for wiemip_name in processing_order:
+        conf = var_config[wiemip_name]
+        var_class = conf['var_class']
+        variable1 = conf['variable1']
+        variable2 = conf['variable2']
+        merge = conf['merge'] and case_config['combine_flag']
         
-        base_basename = os.path.basename(base_files[0])
-        parts = base_basename.split('_')
-        frequency = parts[1] if len(parts) > 1 else 'unknown'
+        print(f"Processing {wiemip_name} (Class: {var_class})...")
         
-        nc_filename = f"DVMDOSTEM_{gcm_pattern}_{experiment}_{wiemip_name}_{frequency}_{process_type}_0.5deg.nc"
+        # Determine frequency for filename
+        freq_raw = conf['frequency'].lower()
+        if freq_raw == 'monthly':
+            freq_str = 'mon'
+        elif freq_raw in ['annual', 'yearly']:
+            freq_str = 'yr'
+        else:
+            freq_str = freq_raw
+            
+        nc_filename = f"DVMDOSTEM_{gcm_pattern}_{experiment}_{wiemip_name}_{freq_str}{process_suffix}_05.nc"
         out_file = os.path.join(LOCAL_WIEMIP_OUTPUT, nc_filename)
         
-        if os.path.exists(out_file):
-            os.remove(out_file)
+        if case_config['skip_download_if_exists'] and os.path.exists(out_file):
+            print(f"  Skipping {wiemip_name} because {out_file} already exists.")
+            continue
             
-        print(f"  Streaming to {out_file}...")
-        
-        if 'time' in dims:
-            with nc.Dataset(out_file, 'w', format='NETCDF4') as nc_out:
-                with nc.Dataset(base_files[0], 'r') as nc_base:
-                    # Create dimensions
-                    for dim_name, dim in nc_base.dimensions.items():
-                        if var_class == '2_Sum_by_PFT' and dim_name == 'pft':
-                            continue
-                        if var_class == '3_Sum_by_layer' and dim_name == 'layer':
-                            continue
-                        if dim_name == 'time' and not dim.isunlimited():
-                            nc_out.createDimension(dim_name, num_times)
-                        else:
-                            nc_out.createDimension(dim_name, len(dim) if not dim.isunlimited() else None)
-                        
-                    # Copy variables except the main one
-                    for v_name, v_in in nc_base.variables.items():
-                        if v_name != variable1:
-                            if var_class == '2_Sum_by_PFT' and 'pft' in v_in.dimensions:
-                                continue
-                            if var_class == '3_Sum_by_layer' and 'layer' in v_in.dimensions:
-                                continue
-                            v_out = nc_out.createVariable(v_name, v_in.datatype, v_in.dimensions, zlib=True)
-                            v_out.setncatts({k: v_in.getncattr(k) for k in v_in.ncattrs()})
-                            if 'time' in v_in.dimensions:
-                                time_idx = v_in.dimensions.index('time')
-                                slices = [slice(None)] * len(v_in.dimensions)
-                                slices[time_idx] = slice(0, num_times)
-                                v_out[:] = v_in[tuple(slices)]
-                            else:
-                                v_out[:] = v_in[:]
-                            
-                    v_base = nc_base.variables[variable1]
-                    
-                    fill_val = None
-                    if hasattr(v_base, '_FillValue'):
-                        fill_val = np.float32(v_base._FillValue)
-                        
-                    out_dims = tuple(d for d in v_base.dimensions if not (var_class == '2_Sum_by_PFT' and d == 'pft') and not (var_class == '3_Sum_by_layer' and d == 'layer'))
-                    
-                    # Determine chunking
-                    chunking = v_base.chunking()
-                    if chunking == 'contiguous':
-                        chunking = None
-                    elif isinstance(chunking, list) or isinstance(chunking, tuple):
-                        out_chunking = []
-                        for i, d in enumerate(v_base.dimensions):
-                            if d in out_dims:
-                                out_chunking.append(chunking[i])
-                        chunking = tuple(out_chunking)
-                        
-                    v_out = nc_out.createVariable(wiemip_name, np.float32, out_dims, zlib=True, chunksizes=chunking, fill_value=fill_val)
-                    
-                    atts = {}
-                    for k in v_base.ncattrs():
-                        if k != '_FillValue':
-                            val = v_base.getncattr(k)
-                            if isinstance(val, (float, np.floating)):
-                                val = np.float32(val)
-                            atts[k] = val
-                    v_out.setncatts(atts)
-                    v_out.units = conf['wiemip_units']
-                    
-                    nc_wet = nc.Dataset(wet_files[0], 'r') if do_merge else None
-                    v_wet = nc_wet.variables[variable1] if nc_wet else None
-                    
-                    # Load LAYERDZ if needed
-                    nc_layerdz = None
-                    v_layerdz = None
-                    if conf['vwc_to_kg']:
-                        layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
-                        if layerdz_files:
-                            nc_layerdz = nc.Dataset(layerdz_files[0], 'r')
-                            v_layerdz = nc_layerdz.variables['LAYERDZ']
-                    
-                    time_chunk = 12
-                    if isinstance(v_base.chunking(), list) or isinstance(v_base.chunking(), tuple):
-                        time_chunk = v_base.chunking()[0]
-                        
-                    slice_bytes = np.prod(v_base.shape[1:]) * 4
-                    while time_chunk * slice_bytes > 4 * 1024**3 and time_chunk > 1:
-                        time_chunk //= 2
-                        
-                    for t_start in range(0, num_times, time_chunk):
-                        t_end = min(t_start + time_chunk, num_times)
-                        
-                        process = psutil.Process(os.getpid())
-                        print(f"      Processing steps {t_start} to {t_end}... Mem: {process.memory_info().rss / 1024**3:.2f} GB")
-                        
-                        base_t = np.array(v_base[t_start:t_end, ...], dtype=np.float32)
-                        
-                        is_missing = None
-                        if fill_val is not None:
-                            is_missing = (base_t == fill_val)
-                            
-                        out_t = base_t.copy()
-                        
-                        if do_merge:
-                            wet_t = np.array(v_wet[t_start:t_end, ...], dtype=np.float32)
-                            valid_t_len = wet_t.shape[0]
-                            
-                            if fill_val is not None:
-                                wet_valid = (wet_t != fill_val) & ~np.isnan(wet_t)
-                            else:
-                                wet_valid = ~np.isnan(wet_t)
-                            
-                            base_t_slice = base_t[:valid_t_len, ...]
-                            out_t_slice = out_t[:valid_t_len, ...]
-                            
-                            merged_t = (base_t_slice * veg_fraction_np) + (wet_t * (1.0 - veg_fraction_np))
-                            out_t_slice[wet_valid] = merged_t[wet_valid]
-                            
-                            del wet_t, wet_valid, merged_t, base_t_slice, out_t_slice
-                            
-                        # Apply unit conversions
-                        layerdz_t = None
-                        if v_layerdz is not None:
-                            layerdz_t = np.array(v_layerdz[t_start:t_end, ...], dtype=np.float32)
-                            
-                        out_t = apply_unit_conversions(out_t, conf, days_in_month[t_start:t_end], layerdz_t)
-                        
-                        # Apply aggregations
-                        if var_class == '2_Sum_by_PFT':
-                            pft_axis = v_base.dimensions.index('pft')
-                            # Sum, but we need to handle missing values
-                            if is_missing is not None:
-                                out_t[is_missing] = np.nan
-                            out_t = np.nansum(out_t, axis=pft_axis)
-                            if is_missing is not None:
-                                is_missing_agg = np.all(is_missing, axis=pft_axis)
-                                out_t[is_missing_agg] = fill_val
-                        elif var_class == '3_Sum_by_layer':
-                            layer_axis = v_base.dimensions.index('layer')
-                            if is_missing is not None:
-                                out_t[is_missing] = np.nan
-                            out_t = np.nansum(out_t, axis=layer_axis)
-                            if is_missing is not None:
-                                is_missing_agg = np.all(is_missing, axis=layer_axis)
-                                out_t[is_missing_agg] = fill_val
-                        else:
-                            if is_missing is not None:
-                                out_t[is_missing] = fill_val
-                                
-                        v_out[t_start:t_end, ...] = out_t
-                        del base_t, out_t, is_missing, layerdz_t
-                        
-                        nc_out.sync()
-                        gc.collect()
-                            
-                    if nc_wet:
-                        nc_wet.close()
-                    if nc_layerdz:
-                        nc_layerdz.close()
-        else:
-            # No time dimension
-            ds_base = xr.open_dataset(base_files[0])
-            base_slice = ds_base[variable1].compute()
-            base_vals = base_slice.values.astype(np.float32)
+        if var_class in ['1_Units_only', '2_Sum_by_PFT', '3_Sum_by_layer']:
+            base_files = glob.glob(os.path.join(LOCAL_BASE_RUN, f"{variable1}_*tr*.nc"))
+            wet_files = glob.glob(os.path.join(LOCAL_WET_RUN, f"{variable1}_*tr*.nc"))
             
+            if not base_files:
+                print(f"No base file found for {variable1}")
+                continue
+                
+            do_merge = merge and bool(wet_files)
+            
+            with xr.open_dataset(base_files[0]) as ds_base:
+                dims = list(ds_base[variable1].dims)
+                num_times = len(ds_base.time) if 'time' in dims else 1
+                if 'time' in dims:
+                    days_in_month = ds_base.time.dt.days_in_month.values
+                else:
+                    days_in_month = None
+
             if do_merge:
-                ds_wet = xr.open_dataset(wet_files[0])
-                wet_slice = ds_wet[variable1].compute()
-                wet_vals = wet_slice.values.astype(np.float32)
-                has_wet = ~np.isnan(wet_vals)
-                merged_vals = (base_vals * veg_fraction_np + wet_vals * (1.0 - veg_fraction_np)).astype(np.float32)
-                out_vals = np.where(has_wet, merged_vals, base_vals).astype(np.float32)
-                ds_wet.close()
+                with xr.open_dataset(wet_files[0]) as ds_wet:
+                    if 'time' in ds_wet.dims:
+                        wet_times = len(ds_wet.time)
+                        if wet_times < num_times:
+                            num_times = wet_times
+                            if 'time' in dims:
+                                days_in_month = days_in_month[:num_times]
+            
+            if os.path.exists(out_file):
+                os.remove(out_file)
+                
+            print(f"  Streaming to {out_file}...")
+            
+            if 'time' in dims:
+                with nc.Dataset(out_file, 'w', format='NETCDF4') as nc_out:
+                    with nc.Dataset(base_files[0], 'r') as nc_base:
+                        for dim_name, dim in nc_base.dimensions.items():
+                            if var_class == '2_Sum_by_PFT' and dim_name == 'pft':
+                                continue
+                            if var_class == '3_Sum_by_layer' and dim_name == 'layer':
+                                continue
+                            if dim_name == 'time' and not dim.isunlimited():
+                                nc_out.createDimension(dim_name, num_times)
+                            else:
+                                nc_out.createDimension(dim_name, len(dim) if not dim.isunlimited() else None)
+                            
+                        for v_name, v_in in nc_base.variables.items():
+                            if v_name != variable1:
+                                if var_class == '2_Sum_by_PFT' and 'pft' in v_in.dimensions:
+                                    continue
+                                if var_class == '3_Sum_by_layer' and 'layer' in v_in.dimensions:
+                                    continue
+                                v_out = nc_out.createVariable(v_name, v_in.datatype, v_in.dimensions, zlib=True)
+                                v_out.setncatts({k: v_in.getncattr(k) for k in v_in.ncattrs()})
+                                if 'time' in v_in.dimensions:
+                                    time_idx = v_in.dimensions.index('time')
+                                    slices = [slice(None)] * len(v_in.dimensions)
+                                    slices[time_idx] = slice(0, num_times)
+                                    v_out[:] = v_in[tuple(slices)]
+                                else:
+                                    v_out[:] = v_in[:]
+                                
+                        v_base = nc_base.variables[variable1]
+                        
+                        fill_val = None
+                        if hasattr(v_base, '_FillValue'):
+                            fill_val = np.float32(v_base._FillValue)
+                            
+                        out_dims = tuple(d for d in v_base.dimensions if not (var_class == '2_Sum_by_PFT' and d == 'pft') and not (var_class == '3_Sum_by_layer' and d == 'layer'))
+                        
+                        chunking = v_base.chunking()
+                        if chunking == 'contiguous':
+                            chunking = None
+                        elif isinstance(chunking, list) or isinstance(chunking, tuple):
+                            out_chunking = []
+                            for i, d in enumerate(v_base.dimensions):
+                                if d in out_dims:
+                                    out_chunking.append(chunking[i])
+                            chunking = tuple(out_chunking)
+                            
+                        v_out = nc_out.createVariable(wiemip_name, np.float32, out_dims, zlib=True, chunksizes=chunking, fill_value=fill_val)
+                        
+                        atts = {}
+                        for k in v_base.ncattrs():
+                            if k != '_FillValue':
+                                val = v_base.getncattr(k)
+                                if isinstance(val, (float, np.floating)):
+                                    val = np.float32(val)
+                                atts[k] = val
+                        v_out.setncatts(atts)
+                        v_out.units = conf['wiemip_units']
+                        
+                        nc_wet = nc.Dataset(wet_files[0], 'r') if do_merge else None
+                        v_wet = nc_wet.variables[variable1] if nc_wet else None
+                        
+                        nc_layerdz = None
+                        v_layerdz = None
+                        if conf['vwc_to_kg']:
+                            layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
+                            if layerdz_files:
+                                nc_layerdz = nc.Dataset(layerdz_files[0], 'r')
+                                v_layerdz = nc_layerdz.variables['LAYERDZ']
+                        
+                        time_chunk = 12
+                        if isinstance(v_base.chunking(), list) or isinstance(v_base.chunking(), tuple):
+                            base_chunk = v_base.chunking()[0]
+                            time_chunk = base_chunk
+                            
+                            # Increase time_chunk to process more at once, up to ~1.5GB memory per chunk
+                            slice_bytes = np.prod(v_base.shape[1:]) * 4
+                            while (time_chunk + base_chunk) * slice_bytes < 1.5 * 1024**3 and (time_chunk + base_chunk) <= num_times:
+                                time_chunk += base_chunk
+                                
+                        slice_bytes = np.prod(v_base.shape[1:]) * 4
+                        while time_chunk * slice_bytes > 4 * 1024**3 and time_chunk > 1:
+                            time_chunk //= 2
+                            
+                        for t_start in range(0, num_times, time_chunk):
+                            t_end = min(t_start + time_chunk, num_times)
+                            
+                            process = psutil.Process(os.getpid())
+                            print(f"      Processing steps {t_start} to {t_end}... Mem: {process.memory_info().rss / 1024**3:.2f} GB")
+                            
+                            base_t = np.array(v_base[t_start:t_end, ...], dtype=np.float32)
+                            
+                            is_missing = None
+                            if fill_val is not None:
+                                is_missing = (base_t == fill_val)
+                                
+                            out_t = base_t.copy()
+                            
+                            if do_merge:
+                                wet_t = np.array(v_wet[t_start:t_end, ...], dtype=np.float32)
+                                valid_t_len = wet_t.shape[0]
+                                
+                                if fill_val is not None:
+                                    wet_valid = (wet_t != fill_val) & ~np.isnan(wet_t)
+                                else:
+                                    wet_valid = ~np.isnan(wet_t)
+                                
+                                base_t_slice = base_t[:valid_t_len, ...]
+                                out_t_slice = out_t[:valid_t_len, ...]
+                                
+                                merged_t = base_t_slice * veg_fraction_np
+                                merged_t += wet_t * (1.0 - veg_fraction_np)
+                                
+                                out_t_slice = np.where(wet_valid, merged_t, out_t_slice)
+                                out_t[:valid_t_len, ...] = out_t_slice
+                                
+                                del wet_t, wet_valid, merged_t, base_t_slice, out_t_slice
+                                
+                            layerdz_t = None
+                            if v_layerdz is not None:
+                                layerdz_t = np.array(v_layerdz[t_start:t_end, ...], dtype=np.float32)
+                                
+                            out_t = apply_unit_conversions(out_t, conf, days_in_month[t_start:t_end], layerdz_t)
+                            
+                            if var_class == '2_Sum_by_PFT':
+                                pft_axis = v_base.dimensions.index('pft')
+                                if is_missing is not None:
+                                    out_t[is_missing] = np.nan
+                                out_t = np.nansum(out_t, axis=pft_axis)
+                                if is_missing is not None:
+                                    is_missing_agg = np.all(is_missing, axis=pft_axis)
+                                    out_t[is_missing_agg] = fill_val
+                            elif var_class == '3_Sum_by_layer':
+                                layer_axis = v_base.dimensions.index('layer')
+                                if is_missing is not None:
+                                    out_t[is_missing] = np.nan
+                                out_t = np.nansum(out_t, axis=layer_axis)
+                                if is_missing is not None:
+                                    is_missing_agg = np.all(is_missing, axis=layer_axis)
+                                    out_t[is_missing_agg] = fill_val
+                            else:
+                                if is_missing is not None:
+                                    out_t = np.where(is_missing, fill_val, out_t)
+                                    
+                            # Suppress numpy deprecation warning for shape assignment
+                            import warnings
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore", DeprecationWarning)
+                                v_out[t_start:t_end, ...] = out_t
+                            del base_t, out_t, is_missing, layerdz_t
+                            
+                            nc_out.sync()
+                            gc.collect()
+                                
+                        if nc_wet:
+                            nc_wet.close()
+                        if nc_layerdz:
+                            nc_layerdz.close()
             else:
-                out_vals = base_vals
+                ds_base = xr.open_dataset(base_files[0])
+                base_slice = ds_base[variable1].compute()
+                base_vals = base_slice.values.astype(np.float32)
                 
-            layerdz_vals = None
-            if conf['vwc_to_kg']:
-                layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
-                if layerdz_files:
-                    ds_layerdz = xr.open_dataset(layerdz_files[0])
-                    layerdz_vals = ds_layerdz['LAYERDZ'].compute().values.astype(np.float32)
-                    ds_layerdz.close()
+                if do_merge:
+                    ds_wet = xr.open_dataset(wet_files[0])
+                    wet_slice = ds_wet[variable1].compute()
+                    wet_vals = wet_slice.values.astype(np.float32)
+                    has_wet = ~np.isnan(wet_vals)
+                    merged_vals = (base_vals * veg_fraction_np + wet_vals * (1.0 - veg_fraction_np)).astype(np.float32)
+                    out_vals = np.where(has_wet, merged_vals, base_vals).astype(np.float32)
+                    ds_wet.close()
+                else:
+                    out_vals = base_vals
                     
-            out_vals = apply_unit_conversions(out_vals, conf, None, layerdz_vals)
-            
-            da_out = base_slice.copy(data=out_vals)
-            
-            if var_class == '2_Sum_by_PFT':
-                da_out = da_out.sum(dim='pft', skipna=True, min_count=1)
-            elif var_class == '3_Sum_by_layer':
-                da_out = da_out.sum(dim='layer', skipna=True, min_count=1)
+                layerdz_vals = None
+                if conf['vwc_to_kg']:
+                    layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
+                    if layerdz_files:
+                        ds_layerdz = xr.open_dataset(layerdz_files[0])
+                        layerdz_vals = ds_layerdz['LAYERDZ'].compute().values.astype(np.float32)
+                        ds_layerdz.close()
+                        
+                out_vals = apply_unit_conversions(out_vals, conf, None, layerdz_vals)
                 
-            da_out.values = da_out.values.astype(np.float32)
-            da_out.attrs['units'] = conf['wiemip_units']
+                da_out = base_slice.copy(data=out_vals)
+                
+                if var_class == '2_Sum_by_PFT':
+                    da_out = da_out.sum(dim='pft', skipna=True, min_count=1)
+                elif var_class == '3_Sum_by_layer':
+                    da_out = da_out.sum(dim='layer', skipna=True, min_count=1)
+                    
+                da_out.values = da_out.values.astype(np.float32)
+                da_out.attrs['units'] = conf['wiemip_units']
+                da_out.name = wiemip_name
+                
+                ds_out = xr.Dataset({wiemip_name: da_out})
+                for coord in da_out.coords:
+                    ds_out = ds_out.assign_coords({coord: da_out.coords[coord]})
+                    
+                ds_out.to_netcdf(out_file, engine='netcdf4')
+                ds_base.close()
+                ds_out.close()
+                
+            gc.collect()
+            
+            print("  Generating figure...")
+            fig = plt.figure(figsize=(18, 15))
+            
+            ds_base_plot = xr.open_dataset(base_files[0])
+            overall_shape = ds_base_plot[variable1].shape
+            
+            agg = time_aggregation.get(wiemip_name, time_aggregation.get(variable1, 'mean'))
+            
+            fig.suptitle(f'Variable: {variable1} -> {wiemip_name} (Merge: {merge}) | Shape: {overall_shape}', fontsize=16)
+            
+            plot_row(fig, 0, variable1, ds_base_plot, f'Base Run ({variable1})', agg, ds_base_plot[variable1].attrs.get('units', ''), ds_veg)
+            
+            if wet_files:
+                ds_wet_plot = xr.open_dataset(wet_files[0])
+                plot_row(fig, 1, variable1, ds_wet_plot, f'Wet Run ({variable1})', agg, ds_wet_plot[variable1].attrs.get('units', ''), ds_veg)
+                ds_wet_plot.close()
+            else:
+                plot_row(fig, 1, variable1, None, f'Wet Run ({variable1})', agg, '', ds_veg)
+                
+            ds_out_saved = xr.open_dataset(out_file)
+            plot_row(fig, 2, wiemip_name, ds_out_saved, f'WIEMIP Output ({wiemip_name})', agg, conf['wiemip_units'], ds_veg)
+            
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            
+            fig_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_summary.png")
+            plt.savefig(fig_file, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            print(f"  Saved figure to {fig_file}")
+            
+            ds_base_plot.close()
+            
+            if 'layer' in ds_out_saved[wiemip_name].dims:
+                print(f"  Generating depth climatology figure for {wiemip_name}...")
+                fig_depth = plt.figure(figsize=(15, 6))
+                fig_depth.suptitle(f'{wiemip_name} - Depth Profile Climatology & Stats', fontsize=16)
+                
+                print(f"    Computing spatial mean for depth profiles (this may take a moment)...")
+                da_out_spatial = ds_out_saved[wiemip_name].mean(dim=['x', 'y'], skipna=True).compute()
+                
+                ax_clim = fig_depth.add_subplot(1, 2, 1)
+                if len(da_out_spatial.time) > 151:
+                    da_clim = da_out_spatial.groupby('time.month').mean(dim='time')
+                    im = ax_clim.pcolormesh(da_clim.month, da_clim.layer, da_clim.T, shading='auto', cmap='viridis')
+                    plt.colorbar(im, ax=ax_clim, label=conf['wiemip_units'])
+                    ax_clim.set_xlabel('Month')
+                    ax_clim.set_ylabel('Depth [Layer Index]')
+                    ax_clim.set_title('Monthly Climatology Profile')
+                    ax_clim.invert_yaxis()
+                else:
+                    da_clim = da_out_spatial.mean(dim='time')
+                    ax_clim.plot(da_clim, da_clim.layer, marker='o')
+                    ax_clim.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
+                    ax_clim.set_ylabel('Depth [Layer Index]')
+                    ax_clim.set_title('Annual Mean Profile')
+                    ax_clim.invert_yaxis()
+                    
+                ax_stats = fig_depth.add_subplot(1, 2, 2)
+                da_mean = da_out_spatial.mean(dim='time')
+                da_min = da_out_spatial.min(dim='time')
+                da_max = da_out_spatial.max(dim='time')
+                
+                ax_stats.plot(da_mean, da_mean.layer, label='Mean', color='black', linewidth=2)
+                ax_stats.plot(da_min, da_min.layer, label='Min', linestyle='--', color='blue')
+                ax_stats.plot(da_max, da_max.layer, label='Max', linestyle='--', color='red')
+                
+                ax_stats.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
+                ax_stats.set_ylabel('Depth [Layer Index]')
+                ax_stats.set_title('Overall Time Min/Mean/Max')
+                ax_stats.legend()
+                ax_stats.invert_yaxis()
+                
+                plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+                fig_depth_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_depth_climatology.png")
+                plt.savefig(fig_depth_file, dpi=150, bbox_inches='tight')
+                plt.close(fig_depth)
+                print(f"  Saved depth figure to {fig_depth_file}")
+
+            ds_out_saved.close()
+        elif var_class == '4_Math':
+            print(f"  Math operation: {wiemip_name} = {variable1} {conf['operation']} {variable2}")
+            
+            w_var1 = get_wiemip_name(variable1, var_config)
+            w_var2 = get_wiemip_name(variable2, var_config)
+            
+            file1 = glob.glob(os.path.join(LOCAL_WIEMIP_OUTPUT, f"*_{w_var1}_*.nc"))
+            file2 = glob.glob(os.path.join(LOCAL_WIEMIP_OUTPUT, f"*_{w_var2}_*.nc"))
+            
+            if not file1 or not file2:
+                print(f"  Missing processed files for {w_var1} or {w_var2}. Skipping.")
+                continue
+                
+            ds1 = xr.open_dataset(file1[0])
+            ds2 = xr.open_dataset(file2[0])
+            
+            da1 = ds1[w_var1]
+            da2 = ds2[w_var2]
+            
+            da2 = da2.interp_like(da1) if not da1.coords.equals(da2.coords) else da2
+            
+            op = conf['operation'].lower()
+            if op == 'add':
+                da_out = da1 + da2
+            elif op == 'subtract':
+                da_out = da1 - da2
+            elif op == 'multiply':
+                da_out = da1 * da2
+            elif op == 'divide':
+                da_out = da1 / da2
+            else:
+                print(f"  Unknown operation {op}. Skipping.")
+                continue
+                
             da_out.name = wiemip_name
+            da_out.attrs['units'] = conf['wiemip_units']
             
             ds_out = xr.Dataset({wiemip_name: da_out})
-            # Copy relevant coords
             for coord in da_out.coords:
                 ds_out = ds_out.assign_coords({coord: da_out.coords[coord]})
                 
             ds_out.to_netcdf(out_file, engine='netcdf4')
-            ds_base.close()
-            ds_out.close()
             
-        import gc
-        gc.collect()
-        
-        # Plotting
-        print("  Generating figure...")
-        fig = plt.figure(figsize=(18, 15))
-        
-        ds_base_plot = xr.open_dataset(base_files[0])
-        overall_shape = ds_base_plot[variable1].shape
-        
-        agg = time_aggregation.get(wiemip_name, time_aggregation.get(variable1, 'mean'))
-        
-        fig.suptitle(f'Variable: {variable1} -> {wiemip_name} (Merge: {merge}) | Shape: {overall_shape}', fontsize=16)
-        
-        plot_row(fig, 0, variable1, ds_base_plot, f'Base Run ({variable1})', agg, ds_base_plot[variable1].attrs.get('units', ''))
-        
-        if wet_files:
-            ds_wet_plot = xr.open_dataset(wet_files[0])
-            plot_row(fig, 1, variable1, ds_wet_plot, f'Wet Run ({variable1})', agg, ds_wet_plot[variable1].attrs.get('units', ''))
-            ds_wet_plot.close()
-        else:
-            plot_row(fig, 1, variable1, None, f'Wet Run ({variable1})', agg, '')
+            print("  Generating figure...")
+            fig = plt.figure(figsize=(18, 15))
             
-        ds_out_saved = xr.open_dataset(out_file)
-        plot_row(fig, 2, wiemip_name, ds_out_saved, f'WIEMIP Output ({wiemip_name})', agg, conf['wiemip_units'])
-        
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
-        fig_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_summary.png")
-        plt.savefig(fig_file, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"  Saved figure to {fig_file}")
-        
-        ds_base_plot.close()
-        
-        if 'layer' in ds_out_saved[wiemip_name].dims:
-            print(f"  Generating depth climatology figure for {wiemip_name}...")
-            fig_depth = plt.figure(figsize=(15, 6))
-            fig_depth.suptitle(f'{wiemip_name} - Depth Profile Climatology & Stats', fontsize=16)
+            overall_shape = ds1[w_var1].shape
+            agg = time_aggregation.get(wiemip_name, 'mean')
             
-            print(f"    Computing spatial mean for depth profiles (this may take a moment)...")
-            da_out_spatial = ds_out_saved[wiemip_name].mean(dim=['x', 'y'], skipna=True).compute()
+            fig.suptitle(f'Math Operation: {wiemip_name} = {w_var1} {conf["operation"]} {w_var2} | Shape: {overall_shape}', fontsize=16)
             
-            ax_clim = fig_depth.add_subplot(1, 2, 1)
-            if len(da_out_spatial.time) > 151:
-                da_clim = da_out_spatial.groupby('time.month').mean(dim='time')
-                im = ax_clim.pcolormesh(da_clim.month, da_clim.layer, da_clim.T, shading='auto', cmap='viridis')
-                plt.colorbar(im, ax=ax_clim, label=conf['wiemip_units'])
-                ax_clim.set_xlabel('Month')
-                ax_clim.set_ylabel('Depth [Layer Index]')
-                ax_clim.set_title('Monthly Climatology Profile')
-                ax_clim.invert_yaxis()
-            else:
-                da_clim = da_out_spatial.mean(dim='time')
-                ax_clim.plot(da_clim, da_clim.layer, marker='o')
-                ax_clim.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
-                ax_clim.set_ylabel('Depth [Layer Index]')
-                ax_clim.set_title('Annual Mean Profile')
-                ax_clim.invert_yaxis()
-                
-            ax_stats = fig_depth.add_subplot(1, 2, 2)
-            da_mean = da_out_spatial.mean(dim='time')
-            da_min = da_out_spatial.min(dim='time')
-            da_max = da_out_spatial.max(dim='time')
-            
-            ax_stats.plot(da_mean, da_mean.layer, label='Mean', color='black', linewidth=2)
-            ax_stats.plot(da_min, da_min.layer, label='Min', linestyle='--', color='blue')
-            ax_stats.plot(da_max, da_max.layer, label='Max', linestyle='--', color='red')
-            
-            ax_stats.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
-            ax_stats.set_ylabel('Depth [Layer Index]')
-            ax_stats.set_title('Overall Time Min/Mean/Max')
-            ax_stats.legend()
-            ax_stats.invert_yaxis()
+            plot_row(fig, 0, w_var1, ds1, f'Input 1 ({w_var1})', agg, ds1[w_var1].attrs.get('units', ''), ds_veg)
+            plot_row(fig, 1, w_var2, ds2, f'Input 2 ({w_var2})', agg, ds2[w_var2].attrs.get('units', ''), ds_veg)
+            plot_row(fig, 2, wiemip_name, ds_out, f'Math Result ({wiemip_name})', agg, conf['wiemip_units'], ds_veg)
             
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            fig_depth_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_depth_climatology.png")
-            plt.savefig(fig_depth_file, dpi=150, bbox_inches='tight')
-            plt.close(fig_depth)
-            print(f"  Saved depth figure to {fig_depth_file}")
+            
+            fig_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_summary.png")
+            plt.savefig(fig_file, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            print(f"  Saved figure to {fig_file}")
+            
+            ds1.close()
+            ds2.close()
+            ds_out.close()
+            
+            gc.collect()
+            
+    ds_veg.close()
 
-        ds_out_saved.close()
-    elif var_class == '4_Math':
-        print(f"  Math operation: {wiemip_name} = {variable1} {conf['operation']} {variable2}")
+def main():
+    start_time = time.time()
+    
+    config = parse_config()
+    var_config, processing_order = parse_csv(config['var_names'])
+    
+    if config['process_from_list']:
+        print("Running in batch mode from list...")
         
-        w_var1 = get_wiemip_name(variable1)
-        w_var2 = get_wiemip_name(variable2)
-        
-        file1 = glob.glob(os.path.join(LOCAL_WIEMIP_OUTPUT, f"*_{w_var1}_*.nc"))
-        file2 = glob.glob(os.path.join(LOCAL_WIEMIP_OUTPUT, f"*_{w_var2}_*.nc"))
-        
-        if not file1 or not file2:
-            print(f"  Missing processed files for {w_var1} or {w_var2}. Skipping.")
-            continue
+        path_map = {}
+        with open(PATH_GS_MERGE_CSV, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                if len(row) >= 2:
+                    path_map[row[0].strip()] = row[1].strip()
+                    
+        cases_to_process = []
+        with open(PROCESSING_COMBINE_LIST_CSV, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                if len(row) >= 4:
+                    cases_to_process.append(row)
+                    
+        if config['process_rows'] != 'all':
+            try:
+                num_rows = int(config['process_rows'])
+                cases_to_process = cases_to_process[:num_rows]
+            except ValueError:
+                print(f"Warning: PROCESS_ROWS '{config['process_rows']}' is not an integer. Processing all rows.")
+                
+        for row in cases_to_process:
+            experiment_prefix = row[0].strip()
+            base_run_name = row[1].strip()
+            wet_run_name = row[2].strip()
+            combine_flag = row[3].strip().upper() == 'TRUE'
             
-        ds1 = xr.open_dataset(file1[0])
-        ds2 = xr.open_dataset(file2[0])
-        
-        da1 = ds1[w_var1]
-        da2 = ds2[w_var2]
-        
-        # Ensure they have the same coords before math
-        da2 = da2.interp_like(da1) if not da1.coords.equals(da2.coords) else da2
-        
-        op = conf['operation'].lower()
-        if op == 'add':
-            da_out = da1 + da2
-        elif op == 'subtract':
-            da_out = da1 - da2
-        elif op == 'multiply':
-            da_out = da1 * da2
-        elif op == 'divide':
-            da_out = da1 / da2
-        else:
-            print(f"  Unknown operation {op}. Skipping.")
-            continue
+            process_suffix = row[4].strip() if len(row) >= 5 else ''
             
-        da_out.name = wiemip_name
-        da_out.attrs['units'] = conf['wiemip_units']
-        
-        # Generate standard output filename
-        frequency = conf['frequency']
-        nc_filename = f"DVMDOSTEM_{gcm_pattern}_{experiment}_{wiemip_name}_{frequency}_{process_type}_0.5deg.nc"
-        out_file = os.path.join(LOCAL_WIEMIP_OUTPUT, nc_filename)
-        
-        ds_out = xr.Dataset({wiemip_name: da_out})
-        for coord in da_out.coords:
-            ds_out = ds_out.assign_coords({coord: da_out.coords[coord]})
+            if base_run_name not in path_map:
+                print(f"Warning: Base run {base_run_name} not found in path_gs_merge.csv. Skipping.")
+                continue
+                
+            base_gs_path = path_map[base_run_name]
+            wet_gs_path = path_map.get(wet_run_name, None)
             
-        ds_out.to_netcdf(out_file, engine='netcdf4')
-        
-        # Plotting for 4_Math
-        print("  Generating figure...")
-        fig = plt.figure(figsize=(18, 15))
-        
-        overall_shape = ds1[w_var1].shape
-        agg = time_aggregation.get(wiemip_name, 'mean')
-        
-        fig.suptitle(f'Math Operation: {wiemip_name} = {w_var1} {conf["operation"]} {w_var2} | Shape: {overall_shape}', fontsize=16)
-        
-        plot_row(fig, 0, w_var1, ds1, f'Input 1 ({w_var1})', agg, ds1[w_var1].attrs.get('units', ''))
-        plot_row(fig, 1, w_var2, ds2, f'Input 2 ({w_var2})', agg, ds2[w_var2].attrs.get('units', ''))
-        plot_row(fig, 2, wiemip_name, ds_out, f'Math Result ({wiemip_name})', agg, conf['wiemip_units'])
-        
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        
-        fig_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_summary.png")
-        plt.savefig(fig_file, dpi=150, bbox_inches='tight')
-        plt.close(fig)
-        print(f"  Saved figure to {fig_file}")
-        
-        ds1.close()
-        ds2.close()
-        ds_out.close()
-        
-        import gc
-        gc.collect()
+            case_output_dir = os.path.join(config['OUTPUT_DIR'], experiment_prefix)
+            local_base_run = os.path.join(case_output_dir, 'base_run')
+            local_wet_run = os.path.join(case_output_dir, 'wet_run')
+            local_wiemip_output = os.path.join(case_output_dir, 'wiemip_output')
+            figures_dir = os.path.join(case_output_dir, 'figures')
+            
+            download_files(base_gs_path, local_base_run, config['var_names'], config['skip_download_if_exists'])
+            if combine_flag and wet_gs_path:
+                download_files(wet_gs_path, local_wet_run, config['var_names'], config['skip_download_if_exists'])
+                
+            case_config = {
+                'experiment_prefix': experiment_prefix,
+                'local_base_run': local_base_run,
+                'local_wet_run': local_wet_run,
+                'local_wiemip_output': local_wiemip_output,
+                'figures_dir': figures_dir,
+                'var_config': var_config,
+                'processing_order': processing_order,
+                'time_aggregation': config['time_aggregation'],
+                'gcm_pattern': config['gcm_pattern'],
+                'experiment': config['experiment'],
+                'combine_flag': combine_flag,
+                'skip_download_if_exists': config['skip_download_if_exists'],
+                'process_suffix': process_suffix
+            }
+            
+            process_case(case_config)
+            
+    else:
+        print("Running in single case mode...")
+        case_config = {
+            'experiment_prefix': 'Single_Case',
+            'local_base_run': os.path.join(config['OUTPUT_DIR'], 'base_run'),
+            'local_wet_run': os.path.join(config['OUTPUT_DIR'], 'wet_run'),
+            'local_wiemip_output': os.path.join(config['OUTPUT_DIR'], 'wiemip_output'),
+            'figures_dir': os.path.join(config['OUTPUT_DIR'], 'figures'),
+            'var_config': var_config,
+            'processing_order': processing_order,
+            'time_aggregation': config['time_aggregation'],
+            'gcm_pattern': config['gcm_pattern'],
+            'experiment': config['experiment'],
+            'combine_flag': True,
+            'skip_download_if_exists': config['skip_download_if_exists'],
+            'process_suffix': f"_{config['process_type']}" if config['process_type'] else ''
+        }
+        process_case(case_config)
 
-print("Done.")
+    end_time = time.time()
+    elapsed = end_time - start_time
+    print(f"\nTotal execution time: {elapsed:.2f} seconds ({elapsed/60:.2f} minutes)")
+
+if __name__ == "__main__":
+    main()

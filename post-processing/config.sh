@@ -5,13 +5,15 @@ WET_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_WetlandOn_split/a
 BASE_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_FireOn/Special_bgc_FireOn_1_Merged1"
 
 # Target directories expected by the postprocessing script
-export OUTPUT_DIR="/mnt/disks/wiemip-data/test"
+export OUTPUT_DIR="/mnt/disks/wiemip-data/processed"
 
 # Meta parameters for naming convention
 export GCM_PATTERN="bgc"
 export EXPERIMENT="FireOn"
 export PROCESS="noProcess"
 export PROCESS_FROM_LIST="true"
+export PROCESS_ROWS="2"
+export SKIP_DOWNLOAD_IF_EXISTS="true"
 
 # The variables to process and copy
 VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
