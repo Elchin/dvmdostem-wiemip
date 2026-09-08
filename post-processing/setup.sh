@@ -45,5 +45,10 @@ fi
 
 # Execute the data processing Python script
 python3 -u process_wiemip.py
+exit_code=$?
+if [ $exit_code -ne 0 ]; then
+    echo "Processing failed with exit code $exit_code"
+    exit $exit_code
+fi
 
 echo "Processing complete."

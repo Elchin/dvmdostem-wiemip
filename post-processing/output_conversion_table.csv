@@ -1,5 +1,5 @@
 ﻿Variable Description,WIEMIP_Name,WIEMIP Units,TEM Units,WIEMIP Frequency,VarClass,Variable1,Variable2,Operation,Variable Available,Unit Conversions,g_to_kg,Per_mo_to_Per_s,Per_day_to_Per_s,C_to_K,mm_to_kg,VWC_to_kg,Merge,
-Active layer thickness,alt,m,m,monthly,1_Units_only,ALD,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,merge: merigng base and wet(fire) runs
+Active layer thickness,alt,m,m,yr,1_Units_only,ALD,NA,NA,All,None,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,1,merge: merigng base and wet(fire) runs
 Nitrogen Inorganic (NH4+ and NO3-) in Soil (including below-ground litter),nInorgSoil,kg N m-2 ,g/m2,annual,1_Units_only,AVLN,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
 CO2 Emission from Fire,fFire,kg C m-2 s-1,g/m2/mo,monthly,4_Math,BURNVEG2AIRC,BURNSOIL2AIRC,Add,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
 CO2 Emission from Cveg due to Fire,fFireCveg,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,BURNVEG2AIRC,NA,NA,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,

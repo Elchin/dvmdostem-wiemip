@@ -1,6 +1,7 @@
 import os
 import glob
 import csv
+import json
 import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
@@ -11,6 +12,32 @@ import psutil
 import subprocess
 import time
 import shutil
+
+# #region agent log
+DEBUG_LOG_PATH = '/mnt/disks/wiemip-data/.cursor/debug-8e099f.log'
+DEBUG_SESSION_ID = '8e099f'
+
+def debug_log(hypothesis_id, location, message, data=None, run_id='pre-fix'):
+    try:
+        entry = {
+            'sessionId': DEBUG_SESSION_ID,
+            'hypothesisId': hypothesis_id,
+            'location': location,
+            'message': message,
+            'data': data or {},
+            'timestamp': int(time.time() * 1000),
+            'runId': run_id,
+        }
+        with open(DEBUG_LOG_PATH, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+    except Exception:
+        pass
+
+def get_rss_gb():
+    return round(psutil.Process(os.getpid()).memory_info().rss / 1024**3, 3)
+
+HEAVY_VARIABLES = {'TLAYER', 'VWCLAYER', 'LAI', 'RHSOM', 'GPP', 'NPP', 'gpppft', 'npppft', 'laipft', 'rhLayers', 'mrsoLayer', 'soilT'}
+# #endregion
 
 # Force xarray to keep data on disk when doing large reductions
 xr.set_options(keep_attrs=True)
@@ -33,7 +60,9 @@ def parse_config():
         'process_type': "noProcess",
         'process_from_list': False,
         'process_rows': "all",
-        'skip_download_if_exists': False
+        'process_row_list': "",
+        'skip_download_if_exists': False,
+        'max_workers': 1,
     }
     if os.path.exists(CONFIG_SH_PATH):
         with open(CONFIG_SH_PATH, 'r') as f:
@@ -60,12 +89,38 @@ def parse_config():
                     config['process_from_list'] = (val == 'true')
                 elif line.startswith('export PROCESS_ROWS='):
                     config['process_rows'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export PROCESS_ROW_LIST='):
+                    config['process_row_list'] = line.split('=', 1)[1].strip('\'"')
                 elif line.startswith('export SKIP_DOWNLOAD_IF_EXISTS='):
                     val = line.split('=', 1)[1].strip('\'"').lower()
                     config['skip_download_if_exists'] = (val == 'true')
+                elif line.startswith('export MAX_WORKERS='):
+                    try:
+                        config['max_workers'] = int(line.split('=', 1)[1].strip('\'"'))
+                    except ValueError:
+                        pass
     
     config['OUTPUT_DIR'] = os.environ.get('OUTPUT_DIR', config['OUTPUT_DIR'])
+    config['RAW_CACHE_DIR'] = os.path.join(config['OUTPUT_DIR'], 'raw_cache')
     return config
+
+def get_raw_cache_path(raw_cache_dir, run_name):
+    return os.path.join(raw_cache_dir, run_name)
+
+def prepare_shared_raw_cache(raw_cache_dir, runs_to_download, var_names, skip_if_exists):
+    """Download each unique Base/Wet run once into shared raw_cache."""
+    os.makedirs(raw_cache_dir, exist_ok=True)
+    debug_log('C', 'prepare_shared_raw_cache:start', 'preparing shared cache', {
+        'num_runs': len(runs_to_download),
+        'raw_cache_dir': raw_cache_dir,
+    })
+    for run_name, gs_path in sorted(runs_to_download.items()):
+        cache_dir = get_raw_cache_path(raw_cache_dir, run_name)
+        print(f"\nShared cache: ensuring {run_name} at {cache_dir}")
+        download_files(gs_path, cache_dir, var_names, skip_if_exists)
+    debug_log('C', 'prepare_shared_raw_cache:done', 'shared cache ready', {
+        'num_runs': len(runs_to_download),
+    })
 
 def parse_csv(var_names):
     var_config = {}
@@ -361,18 +416,41 @@ def download_files(gs_path, local_dir, var_names, skip_if_exists):
     print("  Download complete.")
 
 def process_case(case_config):
-    print(f"\n{'='*50}\nProcessing Case: {case_config['experiment_prefix']}\n{'='*50}")
+    case_label = f"{case_config['experiment_prefix']}{case_config.get('process_suffix', '')}"
+    # #region agent log
+    debug_log('A', 'process_case:entry', 'case started', {
+        'pid': os.getpid(),
+        'case': case_label,
+        'rss_gb': get_rss_gb(),
+    })
+    # #endregion
+    try:
+        _process_case_impl(case_config)
+        # #region agent log
+        debug_log('A', 'process_case:exit', 'case completed', {
+            'pid': os.getpid(),
+            'case': case_label,
+            'rss_gb': get_rss_gb(),
+        })
+        # #endregion
+    except Exception as exc:
+        # #region agent log
+        debug_log('E', 'process_case:error', 'case failed with exception', {
+            'pid': os.getpid(),
+            'case': case_label,
+            'error': str(exc),
+            'rss_gb': get_rss_gb(),
+        })
+        # #endregion
+        raise
+
+def _process_case_impl(case_config):
+    print(f"\n{'='*50}\nProcessing Case: {case_config['experiment_prefix']}{case_config.get('process_suffix', '')}\n{'='*50}")
     
     LOCAL_BASE_RUN = case_config['local_base_run']
     LOCAL_WET_RUN = case_config['local_wet_run']
     LOCAL_WIEMIP_OUTPUT = case_config['local_wiemip_output']
     FIGURES_DIR = case_config['figures_dir']
-    
-    # Download files if paths are provided
-    if case_config.get('base_gs_path'):
-        download_files(case_config['base_gs_path'], LOCAL_BASE_RUN, case_config['var_names'], case_config['skip_download_if_exists'])
-    if case_config.get('combine_flag') and case_config.get('wet_gs_path'):
-        download_files(case_config['wet_gs_path'], LOCAL_WET_RUN, case_config['var_names'], case_config['skip_download_if_exists'])
         
     os.makedirs(LOCAL_WIEMIP_OUTPUT, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -399,6 +477,16 @@ def process_case(case_config):
         merge = conf['merge'] and case_config['combine_flag']
         
         print(f"Processing {wiemip_name} (Class: {var_class})...")
+        # #region agent log
+        if wiemip_name in HEAVY_VARIABLES or variable1 in HEAVY_VARIABLES:
+            debug_log('A', 'process_case:heavy_var', 'starting heavy variable', {
+                'pid': os.getpid(),
+                'case': f"{case_config['experiment_prefix']}{process_suffix}",
+                'variable': wiemip_name,
+                'tem_var': variable1,
+                'rss_gb': get_rss_gb(),
+            })
+        # #endregion
         
         # Determine frequency for filename
         freq_raw = conf['frequency'].lower()
@@ -826,7 +914,15 @@ def main():
                 if len(row) >= 4:
                     cases_to_process.append(row)
                     
-        if config['process_rows'] != 'all':
+        if config.get('process_row_list'):
+            row_indices = []
+            for part in config['process_row_list'].split(','):
+                part = part.strip()
+                if part:
+                    row_indices.append(int(part))
+            cases_to_process = [cases_to_process[i - 1] for i in row_indices if 0 < i <= len(cases_to_process)]
+            print(f"Processing row list {row_indices} ({len(cases_to_process)} cases)")
+        elif config['process_rows'] != 'all':
             try:
                 num_rows = int(config['process_rows'])
                 cases_to_process = cases_to_process[:num_rows]
@@ -834,6 +930,7 @@ def main():
                 print(f"Warning: PROCESS_ROWS '{config['process_rows']}' is not an integer. Processing all rows.")
                 
         case_configs = []
+        runs_to_download = {}
         for row in cases_to_process:
             experiment_prefix = row[0].strip()
             base_run_name = row[1].strip()
@@ -847,11 +944,15 @@ def main():
                 continue
                 
             base_gs_path = path_map[base_run_name]
-            wet_gs_path = path_map.get(wet_run_name, None)
+            wet_gs_path = path_map.get(wet_run_name, None) if wet_run_name.upper() != 'NA' else None
+            
+            runs_to_download[base_run_name] = base_gs_path
+            if combine_flag and wet_gs_path:
+                runs_to_download[wet_run_name] = wet_gs_path
             
             case_output_dir = os.path.join(config['OUTPUT_DIR'], f"{experiment_prefix}{process_suffix}")
-            local_base_run = os.path.join(case_output_dir, 'base_run')
-            local_wet_run = os.path.join(case_output_dir, 'wet_run')
+            local_base_run = get_raw_cache_path(config['RAW_CACHE_DIR'], base_run_name)
+            local_wet_run = get_raw_cache_path(config['RAW_CACHE_DIR'], wet_run_name) if wet_gs_path else os.path.join(case_output_dir, 'wet_run')
             local_wiemip_output = os.path.join(case_output_dir, 'wiemip_output')
             figures_dir = os.path.join(case_output_dir, 'figures')
             
@@ -869,23 +970,39 @@ def main():
                 'combine_flag': combine_flag,
                 'skip_download_if_exists': config['skip_download_if_exists'],
                 'process_suffix': process_suffix,
-                'base_gs_path': base_gs_path,
-                'wet_gs_path': wet_gs_path,
                 'var_names': config['var_names']
             }
             case_configs.append(case_config)
+        
+        prepare_shared_raw_cache(
+            config['RAW_CACHE_DIR'],
+            runs_to_download,
+            config['var_names'],
+            config['skip_download_if_exists'],
+        )
             
-        if len(case_configs) > 1:
+        max_workers = max(1, config.get('max_workers', 1))
+        if len(case_configs) > 1 and max_workers > 1:
             from concurrent.futures import ProcessPoolExecutor
-            # Limit workers to 2 to prevent Out-Of-Memory (OOM) errors on 62GB RAM,
-            # as variables like TLAYER can consume >10GB each during merging.
-            max_workers = 2
             print(f"\nProcessing {len(case_configs)} cases in parallel using {max_workers} workers...")
+            # #region agent log
+            debug_log('B', 'main:parallel', 'starting process pool', {
+                'max_workers': max_workers,
+                'num_cases': len(case_configs),
+                'rss_gb': get_rss_gb(),
+            })
+            # #endregion
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Wrap in list() to force evaluation and catch any BrokenProcessPool errors
-                # if a worker is killed by the OS OOM killer.
                 list(executor.map(process_case, case_configs))
         else:
+            if len(case_configs) > 1:
+                print(f"\nProcessing {len(case_configs)} cases sequentially (MAX_WORKERS={max_workers})...")
+            # #region agent log
+            debug_log('B', 'main:sequential', 'processing cases sequentially', {
+                'num_cases': len(case_configs),
+                'max_workers': max_workers,
+            })
+            # #endregion
             for case_config in case_configs:
                 process_case(case_config)
             
