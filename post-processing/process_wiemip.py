@@ -47,8 +47,16 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_SH_PATH = os.path.join(SCRIPT_DIR, 'config.sh')
 CSV_PATH = os.path.join(SCRIPT_DIR, 'output_conversion_table.csv')
 VEG_PATH = os.path.join(SCRIPT_DIR, 'wetland.nc')
-PATH_GS_MERGE_CSV = os.path.join(SCRIPT_DIR, 'path_gs_merge.csv')
-PROCESSING_COMBINE_LIST_CSV = os.path.join(SCRIPT_DIR, 'processing_combine_list.csv')
+def get_list_csv_paths(overshoot=False):
+    if overshoot:
+        return (
+            os.path.join(SCRIPT_DIR, 'path_gs_merge_overshoot.csv'),
+            os.path.join(SCRIPT_DIR, 'processing_combine_list_overshoot.csv'),
+        )
+    return (
+        os.path.join(SCRIPT_DIR, 'path_gs_merge.csv'),
+        os.path.join(SCRIPT_DIR, 'processing_combine_list.csv'),
+    )
 
 def parse_config():
     config = {
@@ -63,6 +71,7 @@ def parse_config():
         'process_row_list': "",
         'skip_download_if_exists': False,
         'max_workers': 1,
+        'overshoot': False,
     }
     if os.path.exists(CONFIG_SH_PATH):
         with open(CONFIG_SH_PATH, 'r') as f:
@@ -99,6 +108,9 @@ def parse_config():
                         config['max_workers'] = int(line.split('=', 1)[1].strip('\'"'))
                     except ValueError:
                         pass
+                elif line.startswith('export OVERSHOOT='):
+                    val = line.split('=', 1)[1].strip('\'"').lower()
+                    config['overshoot'] = (val == 'true')
     
     config['OUTPUT_DIR'] = os.environ.get('OUTPUT_DIR', config['OUTPUT_DIR'])
     config['RAW_CACHE_DIR'] = os.path.join(config['OUTPUT_DIR'], 'raw_cache')
@@ -106,6 +118,21 @@ def parse_config():
 
 def get_raw_cache_path(raw_cache_dir, run_name):
     return os.path.join(raw_cache_dir, run_name)
+
+def var_nc_glob(local_dir, var_name):
+    """Match raw variable files (_tr or _sc suffixes, etc.)."""
+    return glob.glob(os.path.join(local_dir, f"{var_name}_*.nc"))
+
+def get_gsutil_env(output_dir):
+    """Use the data disk for gsutil temp/state when root is full."""
+    gsutil_state = os.path.join(output_dir, '.gsutil-state')
+    gsutil_tmp = os.path.join(output_dir, 'tmp')
+    os.makedirs(gsutil_state, exist_ok=True)
+    os.makedirs(gsutil_tmp, exist_ok=True)
+    env = os.environ.copy()
+    env['TMPDIR'] = gsutil_tmp
+    env['GSUtil'] = f'state_dir={gsutil_state}'
+    return env, gsutil_state
 
 def prepare_shared_raw_cache(raw_cache_dir, runs_to_download, var_names, skip_if_exists):
     """Download each unique Base/Wet run once into shared raw_cache."""
@@ -117,7 +144,7 @@ def prepare_shared_raw_cache(raw_cache_dir, runs_to_download, var_names, skip_if
     for run_name, gs_path in sorted(runs_to_download.items()):
         cache_dir = get_raw_cache_path(raw_cache_dir, run_name)
         print(f"\nShared cache: ensuring {run_name} at {cache_dir}")
-        download_files(gs_path, cache_dir, var_names, skip_if_exists)
+        download_files(gs_path, cache_dir, var_names, skip_if_exists, output_dir=os.path.dirname(raw_cache_dir))
     debug_log('C', 'prepare_shared_raw_cache:done', 'shared cache ready', {
         'num_runs': len(runs_to_download),
     })
@@ -234,6 +261,90 @@ def compute_ts_iteratively(da, chunk_size=120, has_pft=False, has_layer=False):
         ts_chunks.append(chunk_ts)
         
     return xr.concat(ts_chunks, dim='time')
+
+def compute_spatial_mean_by_layer_chunked(da, chunk_size=120):
+    """Spatial mean over x,y for each (time, layer), without loading full 4D cube."""
+    time_len = da.sizes.get('time', 0)
+    if time_len == 0:
+        return da.mean(dim=['x', 'y'], skipna=True).compute()
+
+    chunks = []
+    print(f"    Computing layer spatial mean in chunks of {chunk_size}...")
+    for t_start in range(0, time_len, chunk_size):
+        t_end = min(t_start + chunk_size, time_len)
+        chunk = da.isel(time=slice(t_start, t_end)).mean(dim=['x', 'y'], skipna=True).compute()
+        chunks.append(chunk)
+        gc.collect()
+    return xr.concat(chunks, dim='time')
+
+def save_depth_climatology_figure(wiemip_name, da_layer, figures_dir, units):
+    """Generate depth profile climatology PNG from a layer variable."""
+    print(f"  Generating depth climatology figure for {wiemip_name}...")
+    # #region agent log
+    debug_log('A', 'depth_clim:entry', 'starting depth climatology', {
+        'wiemip_name': wiemip_name,
+        'shape': list(da_layer.shape),
+        'dims': list(da_layer.dims),
+        'est_full_gb': round(float(np.prod(da_layer.shape)) * 4 / 1024**3, 2),
+        'rss_gb': get_rss_gb(),
+    })
+    # #endregion
+    fig_depth = plt.figure(figsize=(15, 6))
+    fig_depth.suptitle(f'{wiemip_name} - Depth Profile Climatology & Stats', fontsize=16)
+
+    print(f"    Computing spatial mean for depth profiles (this may take a moment)...")
+    da_out_spatial = compute_spatial_mean_by_layer_chunked(da_layer, chunk_size=120)
+    # #region agent log
+    debug_log('A', 'depth_clim:after_spatial', 'chunked spatial mean done', {
+        'wiemip_name': wiemip_name,
+        'result_shape': list(da_out_spatial.shape),
+        'rss_gb': get_rss_gb(),
+    })
+    # #endregion
+
+    ax_clim = fig_depth.add_subplot(1, 2, 1)
+    if len(da_out_spatial.time) > 151:
+        da_clim = da_out_spatial.groupby('time.month').mean(dim='time')
+        im = ax_clim.pcolormesh(da_clim.month, da_clim.layer, da_clim.T, shading='auto', cmap='viridis')
+        plt.colorbar(im, ax=ax_clim, label=units)
+        ax_clim.set_xlabel('Month')
+        ax_clim.set_ylabel('Depth [Layer Index]')
+        ax_clim.set_title('Monthly Climatology Profile')
+        ax_clim.invert_yaxis()
+    else:
+        da_clim = da_out_spatial.mean(dim='time')
+        ax_clim.plot(da_clim, da_clim.layer, marker='o')
+        ax_clim.set_xlabel(f"{wiemip_name} ({units})")
+        ax_clim.set_ylabel('Depth [Layer Index]')
+        ax_clim.set_title('Annual Mean Profile')
+        ax_clim.invert_yaxis()
+
+    ax_stats = fig_depth.add_subplot(1, 2, 2)
+    da_mean = da_out_spatial.mean(dim='time')
+    da_min = da_out_spatial.min(dim='time')
+    da_max = da_out_spatial.max(dim='time')
+
+    ax_stats.plot(da_mean, da_mean.layer, label='Mean', color='black', linewidth=2)
+    ax_stats.plot(da_min, da_min.layer, label='Min', linestyle='--', color='blue')
+    ax_stats.plot(da_max, da_max.layer, label='Max', linestyle='--', color='red')
+
+    ax_stats.set_xlabel(f"{wiemip_name} ({units})")
+    ax_stats.set_ylabel('Depth [Layer Index]')
+    ax_stats.set_title('Overall Time Min/Mean/Max')
+    ax_stats.legend()
+    ax_stats.invert_yaxis()
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig_depth_file = os.path.join(figures_dir, f"{wiemip_name}_depth_climatology.png")
+    plt.savefig(fig_depth_file, dpi=150, bbox_inches='tight')
+    plt.close(fig_depth)
+    print(f"  Saved depth figure to {fig_depth_file}")
+    # #region agent log
+    debug_log('A', 'depth_clim:done', 'depth climatology saved', {
+        'wiemip_name': wiemip_name,
+        'rss_gb': get_rss_gb(),
+    })
+    # #endregion
 
 def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg):
     if ds is None or var_name not in ds:
@@ -383,7 +494,7 @@ def get_wiemip_name(var_name, var_config):
             return w_name
     return var_name
 
-def download_files(gs_path, local_dir, var_names, skip_if_exists):
+def download_files(gs_path, local_dir, var_names, skip_if_exists, output_dir=None):
     os.makedirs(local_dir, exist_ok=True)
         
     print(f"Checking files to download from {gs_path} to {local_dir}...")
@@ -393,7 +504,7 @@ def download_files(gs_path, local_dir, var_names, skip_if_exists):
     
     missing_vars = []
     for var in sorted(vars_to_download):
-        if skip_if_exists and len(glob.glob(os.path.join(local_dir, f"{var}_*tr*.nc"))) > 0:
+        if skip_if_exists and var_nc_glob(local_dir, var):
             continue
         missing_vars.append(var)
         
@@ -404,15 +515,37 @@ def download_files(gs_path, local_dir, var_names, skip_if_exists):
     print(f"  Downloading {len(missing_vars)} missing variables in parallel...")
     
     # Construct a single gsutil command to download all missing variables at once
-    # gsutil -m cp gs://path/var1_*tr*.nc gs://path/var2_*tr*.nc ... local_dir/
-    cmd_parts = ["gsutil", "-m", "cp"]
+    # gsutil -m cp gs://path/var1_*.nc gs://path/var2_*.nc ... local_dir/
+    gsutil_state = None
+    if output_dir:
+        env, gsutil_state = get_gsutil_env(output_dir)
+    else:
+        env = os.environ.copy()
+
+    cmd_parts = ["gsutil", "-m"]
+    if gsutil_state:
+        cmd_parts.extend(["-o", f"GSUtil:state_dir={gsutil_state}"])
+    cmd_parts.append("cp")
     for var in missing_vars:
-        cmd_parts.append(f"{gs_path}/{var}_*tr*.nc")
-    cmd_parts.append(f"{local_dir}/")
+        cmd_parts.append(f"{gs_path}/{var}_*.nc")
+    cmd_parts.append(local_dir)
     
     # Run the command
-    cmd = " ".join(cmd_parts)
-    subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    subprocess.run(cmd_parts, env=env, capture_output=True, text=True)
+
+    still_missing = [var for var in missing_vars if not var_nc_glob(local_dir, var)]
+    if still_missing:
+        print(f"  Retrying {len(still_missing)} variables individually...")
+        for var in still_missing:
+            one_cmd = ["gsutil"]
+            if gsutil_state:
+                one_cmd.extend(["-o", f"GSUtil:state_dir={gsutil_state}"])
+            one_cmd.extend(["cp", f"{gs_path}/{var}_*.nc", local_dir])
+            subprocess.run(one_cmd, env=env, capture_output=True, text=True)
+
+    not_found = [var for var in missing_vars if not var_nc_glob(local_dir, var)]
+    if not_found:
+        print(f"  Warning: {len(not_found)} variables not found at source (may be derived): {', '.join(not_found)}")
     print("  Download complete.")
 
 def process_case(case_config):
@@ -501,12 +634,18 @@ def _process_case_impl(case_config):
         out_file = os.path.join(LOCAL_WIEMIP_OUTPUT, nc_filename)
         
         if case_config['skip_download_if_exists'] and os.path.exists(out_file):
+            depth_fig = os.path.join(FIGURES_DIR, f"{wiemip_name}_depth_climatology.png")
+            if var_class in ['1_Units_only', '2_Sum_by_PFT', '3_Sum_by_layer'] and not os.path.exists(depth_fig):
+                with xr.open_dataset(out_file) as ds_skip:
+                    if wiemip_name in ds_skip and 'layer' in ds_skip[wiemip_name].dims:
+                        print(f"  Output exists; generating missing depth figure for {wiemip_name}...")
+                        save_depth_climatology_figure(wiemip_name, ds_skip[wiemip_name], FIGURES_DIR, conf['wiemip_units'])
             print(f"  Skipping {wiemip_name} because {out_file} already exists.")
             continue
             
         if var_class in ['1_Units_only', '2_Sum_by_PFT', '3_Sum_by_layer']:
-            base_files = glob.glob(os.path.join(LOCAL_BASE_RUN, f"{variable1}_*tr*.nc"))
-            wet_files = glob.glob(os.path.join(LOCAL_WET_RUN, f"{variable1}_*tr*.nc"))
+            base_files = var_nc_glob(LOCAL_BASE_RUN, variable1)
+            wet_files = var_nc_glob(LOCAL_WET_RUN, variable1)
             
             if not base_files:
                 print(f"No base file found for {variable1}")
@@ -601,7 +740,7 @@ def _process_case_impl(case_config):
                         nc_layerdz = None
                         v_layerdz = None
                         if conf['vwc_to_kg']:
-                            layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
+                            layerdz_files = var_nc_glob(LOCAL_BASE_RUN, "LAYERDZ")
                             if layerdz_files:
                                 nc_layerdz = nc.Dataset(layerdz_files[0], 'r')
                                 v_layerdz = nc_layerdz.variables['LAYERDZ']
@@ -712,7 +851,7 @@ def _process_case_impl(case_config):
                     
                 layerdz_vals = None
                 if conf['vwc_to_kg']:
-                    layerdz_files = glob.glob(os.path.join(LOCAL_BASE_RUN, "LAYERDZ_*tr*.nc"))
+                    layerdz_files = var_nc_glob(LOCAL_BASE_RUN, "LAYERDZ")
                     if layerdz_files:
                         ds_layerdz = xr.open_dataset(layerdz_files[0])
                         layerdz_vals = ds_layerdz['LAYERDZ'].compute().values.astype(np.float32)
@@ -773,50 +912,7 @@ def _process_case_impl(case_config):
             ds_base_plot.close()
             
             if 'layer' in ds_out_saved[wiemip_name].dims:
-                print(f"  Generating depth climatology figure for {wiemip_name}...")
-                fig_depth = plt.figure(figsize=(15, 6))
-                fig_depth.suptitle(f'{wiemip_name} - Depth Profile Climatology & Stats', fontsize=16)
-                
-                print(f"    Computing spatial mean for depth profiles (this may take a moment)...")
-                da_out_spatial = ds_out_saved[wiemip_name].mean(dim=['x', 'y'], skipna=True).compute()
-                
-                ax_clim = fig_depth.add_subplot(1, 2, 1)
-                if len(da_out_spatial.time) > 151:
-                    da_clim = da_out_spatial.groupby('time.month').mean(dim='time')
-                    im = ax_clim.pcolormesh(da_clim.month, da_clim.layer, da_clim.T, shading='auto', cmap='viridis')
-                    plt.colorbar(im, ax=ax_clim, label=conf['wiemip_units'])
-                    ax_clim.set_xlabel('Month')
-                    ax_clim.set_ylabel('Depth [Layer Index]')
-                    ax_clim.set_title('Monthly Climatology Profile')
-                    ax_clim.invert_yaxis()
-                else:
-                    da_clim = da_out_spatial.mean(dim='time')
-                    ax_clim.plot(da_clim, da_clim.layer, marker='o')
-                    ax_clim.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
-                    ax_clim.set_ylabel('Depth [Layer Index]')
-                    ax_clim.set_title('Annual Mean Profile')
-                    ax_clim.invert_yaxis()
-                    
-                ax_stats = fig_depth.add_subplot(1, 2, 2)
-                da_mean = da_out_spatial.mean(dim='time')
-                da_min = da_out_spatial.min(dim='time')
-                da_max = da_out_spatial.max(dim='time')
-                
-                ax_stats.plot(da_mean, da_mean.layer, label='Mean', color='black', linewidth=2)
-                ax_stats.plot(da_min, da_min.layer, label='Min', linestyle='--', color='blue')
-                ax_stats.plot(da_max, da_max.layer, label='Max', linestyle='--', color='red')
-                
-                ax_stats.set_xlabel(f"{wiemip_name} ({conf['wiemip_units']})")
-                ax_stats.set_ylabel('Depth [Layer Index]')
-                ax_stats.set_title('Overall Time Min/Mean/Max')
-                ax_stats.legend()
-                ax_stats.invert_yaxis()
-                
-                plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-                fig_depth_file = os.path.join(FIGURES_DIR, f"{wiemip_name}_depth_climatology.png")
-                plt.savefig(fig_depth_file, dpi=150, bbox_inches='tight')
-                plt.close(fig_depth)
-                print(f"  Saved depth figure to {fig_depth_file}")
+                save_depth_climatology_figure(wiemip_name, ds_out_saved[wiemip_name], FIGURES_DIR, conf['wiemip_units'])
 
             ds_out_saved.close()
         elif var_class == '4_Math':
@@ -896,10 +992,14 @@ def main():
     var_config, processing_order = parse_csv(config['var_names'])
     
     if config['process_from_list']:
-        print("Running in batch mode from list...")
+        path_gs_merge_csv, processing_combine_list_csv = get_list_csv_paths(config['overshoot'])
+        list_label = 'overshoot' if config['overshoot'] else 'standard'
+        print(f"Running in batch mode from list ({list_label})...")
+        print(f"  path map: {os.path.basename(path_gs_merge_csv)}")
+        print(f"  case list: {os.path.basename(processing_combine_list_csv)}")
         
         path_map = {}
-        with open(PATH_GS_MERGE_CSV, 'r') as f:
+        with open(path_gs_merge_csv, 'r') as f:
             reader = csv.reader(f)
             next(reader)
             for row in reader:
@@ -907,7 +1007,7 @@ def main():
                     path_map[row[0].strip()] = row[1].strip()
                     
         cases_to_process = []
-        with open(PROCESSING_COMBINE_LIST_CSV, 'r') as f:
+        with open(processing_combine_list_csv, 'r') as f:
             reader = csv.reader(f)
             next(reader)
             for row in reader:
@@ -940,7 +1040,7 @@ def main():
             process_suffix = row[4].strip() if len(row) >= 5 else ''
             
             if base_run_name not in path_map:
-                print(f"Warning: Base run {base_run_name} not found in path_gs_merge.csv. Skipping.")
+                print(f"Warning: Base run {base_run_name} not found in {os.path.basename(path_gs_merge_csv)}. Skipping.")
                 continue
                 
             base_gs_path = path_map[base_run_name]

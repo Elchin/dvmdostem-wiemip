@@ -1,0 +1,7 @@
+﻿WIEMIP_Experiment_Prefix,Base_Run,Wet_Run,Combine,noProcess
+DVM-DOS-TEM_ctrl,Special_ctrl_FireOn,Special_ctrl_Wetland,TRUE,
+DVM-DOS-TEM_historic,Special_historic_FireOn,Special_historic_Wetland,TRUE,
+DVM-DOS-TEM_l,Special_l_FireOn,Special_l_Wetland,TRUE,
+DVM-DOS-TEM_hl,Special_hl_FireOn,Special_hl_Wetland,TRUE,
+DVM-DOS-TEM_hl_cf,Special_hl_cf_FireOn,Special_hl_cf_Wetland,TRUE,
+DVM-DOS-TEM_m,Special_m_FireOn,Special_m_Wetland,TRUE,
