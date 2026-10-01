@@ -4,7 +4,7 @@ Nitrogen Inorganic (NH4+ and NO3-) in Soil (including below-ground litter),nInor
 CO2 Emission from Fire,fFire,kg C m-2 s-1,g/m2/mo,monthly,4_Math,BURNVEG2AIRC,BURNSOIL2AIRC,Add,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
 CO2 Emission from Cveg due to Fire,fFireCveg,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,BURNVEG2AIRC,NA,NA,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
 Carbon emitted from peat fires,ffirepeatTotal,kg C m-2 s-1,g/m2/mo,monthly,1_Units_only,BURNSOIL2AIRC,NA,NA,Fire_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
-Wetland methane emissions,wetCH4,kg CH4 m-2 s-1,g/m2/mo,monthly,1_Units_only,CH4EFFLUXTOT,NA,NA,Wetland_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,0,
+Wetland methane emissions,wetCH4,kg CH4 m-2 s-1,g/m2/mo,monthly,1_Units_only,CH4EFFLUXTOT,NA,NA,Wetland_only,"g -> kg, mo -> s",TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,1,
 Carbon in Coarse Woody Debris,cCwd,kg C m-2,g/m2/yr,annual,1_Units_only,DWDC,NA,NA,All,g -> kg,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,1,
 Total Evapo-Transpiration,evapotrans,kg m-2 s-1,mm/m2/mo,monthly,1_Units_only,EET,NA,NA,All,"mm -> kg, mo -> s",FALSE,TRUE,FALSE,FALSE,TRUE,FALSE,1,
 Frozen layer thickness,fdepth,m,Probably m,monthly,5_Ignore_for_now,NA,NA,NA,All,N/A,NA,NA,FALSE,FALSE,FALSE,FALSE,1,

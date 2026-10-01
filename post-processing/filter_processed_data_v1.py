@@ -35,21 +35,36 @@ def load_filters(csv_path):
                 print(f"Warning: Could not parse range for {var_name}: {row['range_WIEMIP']}")
     return filters
 
-def process_directory(case_dir, filters_csv):
+def load_conversion_equations(csv_path):
+    equations = {}
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            var_name = row.get('WIEMIP_Name', '').strip()
+            # The column name in the CSV is 'Unit Conversions'
+            conversion = row.get('Unit Conversions', '').strip()
+            if var_name:
+                equations[var_name] = conversion if conversion else 'None'
+    return equations
+
+def process_directory(case_dir, filters_csv, equations_csv):
     if not os.path.isdir(case_dir):
         print(f"Error: Directory {case_dir} does not exist.")
         sys.exit(1)
         
     filters = load_filters(filters_csv)
+    equations = load_conversion_equations(equations_csv)
     
     wiemip_output_dir = os.path.join(case_dir, 'wiemip_output')
-    filtered_dir = os.path.join(case_dir, 'filtered')
+    filtered_dir = os.path.join(case_dir, 'filtered_wiemip_output')
+    figures_dir = os.path.join(case_dir, 'figures')
     
     if not os.path.isdir(wiemip_output_dir):
         print(f"Error: wiemip_output directory not found in {case_dir}")
         sys.exit(1)
         
     os.makedirs(filtered_dir, exist_ok=True)
+    os.makedirs(figures_dir, exist_ok=True)
     
     veg_path = os.path.join(script_dir, 'wetland.nc')
     ds_veg = xr.open_dataset(veg_path).rename({'X': 'x', 'Y': 'y'})
@@ -204,7 +219,8 @@ def process_directory(case_dir, filters_csv):
                         overall_shape = ds[var_name].shape
                         agg = time_aggregation.get(var_name, 'mean')
                         
-                        fig.suptitle(f'Filtered Variable: {var_name} | Range: [{min_val}, {max_val}] | Shape: {overall_shape}', fontsize=16)
+                        conversion_eq = equations.get(var_name, 'Unknown')
+                        fig.suptitle(f'Filtered Variable: {var_name} | Range: [{min_val}, {max_val}] | Shape: {overall_shape}\nUnit Conversion: {conversion_eq}', fontsize=16)
                         
                         units = ds[var_name].attrs.get('units', '')
                         
@@ -213,13 +229,13 @@ def process_directory(case_dir, filters_csv):
                         
                         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
                         
-                        fig_file = os.path.join(filtered_dir, f"{var_name}_summary.png")
+                        fig_file = os.path.join(figures_dir, f"{var_name}_filtered_summary.png")
                         plt.savefig(fig_file, dpi=150, bbox_inches='tight')
                         plt.close(fig)
                         print(f"    Saved figure to {fig_file}")
                         
                         if 'layer' in ds[var_name].dims:
-                            save_depth_climatology_figure(var_name, ds_filtered_plot[var_name], filtered_dir, units)
+                            save_depth_climatology_figure(var_name, ds_filtered_plot[var_name], figures_dir, units, suffix="_filtered_depth_climatology")
                             
                 gc.collect()
                 
@@ -230,17 +246,22 @@ def process_directory(case_dir, filters_csv):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python filter_processed_data.py <path_to_processed_case_directory>")
-        print("Example: python filter_processed_data.py /mnt/disks/wiemip-data/processed/DVM-DOS-TEM_ctrl")
+        print("Usage: python filter_processed_data_v1.py <path_to_processed_case_directory>")
+        print("Example: python filter_processed_data_v1.py /mnt/disks/wiemip-data/processed/DVM-DOS-TEM_ctrl")
         sys.exit(1)
         
     case_directory = sys.argv[1]
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    filters_csv_path = os.path.join(script_dir, 'output_filters.csv')
+    filters_csv_path = os.path.join(script_dir, 'output_filters_v1.csv')
+    equations_csv_path = os.path.join(script_dir, 'output_conversion_table.csv')
     
     if not os.path.exists(filters_csv_path):
         print(f"Error: {filters_csv_path} not found.")
         sys.exit(1)
         
-    process_directory(case_directory, filters_csv_path)
+    if not os.path.exists(equations_csv_path):
+        print(f"Error: {equations_csv_path} not found.")
+        sys.exit(1)
+        
+    process_directory(case_directory, filters_csv_path, equations_csv_path)
     print("Done.")

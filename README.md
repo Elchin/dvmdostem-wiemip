@@ -52,3 +52,28 @@ When run, the script will create a new directory for the specified simulation in
 - Python 3
 - `gsutil` / `gcloud storage cp` CLI configured and authenticated.
 - The `netCDF4` python module (required for generating constant `ch4.nc` in `setup_1pctCO2_sim_files.py`).
+
+## Post-processing and analysis
+
+After simulations finish, raw DVM-DOS-TEM output on GCS is converted to WIEMIP NetCDF products under `post-processing/`. See **[post-processing/README.md](post-processing/README.md)** for:
+
+- Batch merge/conversion (`setup.sh`, `process_wiemip.py`)
+- Overshoot reruns (`path_gs_merge_overshoot_rerun.csv`, `run_historic_overshoot_rerun.sh`, `run_overshoot_l_rerun.sh`)
+- Range filtering, time/coordinate fixes on filtered files
+- Optional coord utilities (`add_coords_from_runmask.py`, `fix_time_and_coords.py`)
+
+Quick start (default `config.sh`):
+
+```bash
+cd post-processing
+time ./setup.sh
+```
+
+Overshoot historic rerun example:
+
+```bash
+cd post-processing
+./run_historic_overshoot_rerun.sh
+```
+
+Timeseries comparison plots for processed cases live in **`analysis/`** (e.g. `plot_overshoot_new.py`).

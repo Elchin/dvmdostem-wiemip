@@ -1,31 +1,31 @@
 #!/bin/bash
+# Historic overshoot rerun: RawOutputRepeat FireOn + RawOutput Wetland merge.
+# Use with: WIEMIP_CONFIG=config_overshoot_historic_rerun.sh ./run_historic_overshoot_rerun.sh
 
-# Define the Google Cloud Storage URIs for the two simulations
-WET_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_WetlandOn_split/all_merged"
-BASE_RUN="gs://wiemip/SimulationOuput/RawOutput/bgc/Special_bgc_FireOn/Special_bgc_FireOn_1_Merged1"
+WET_RUN="gs://wiemip/OvershootOutput/RawOutput/historic/Special_historic_Wetland_split/all_merged_restored"
+BASE_RUN="gs://wiemip/OvershootOutput/RawOutputRepeat/historic/Special_historic_FireOn/Special_historic_FireOn_1_Split5/all_merged_filtered"
 
-# Target directories expected by the postprocessing script
-export OUTPUT_DIR="/mnt/disks/wiemip-data/1pctCO2_processed"
-
-# Meta parameters for naming convention
-export GCM_PATTERN="bgc"
+export OUTPUT_DIR="/mnt/disks/wiemip-data/re-run-overshoot"
+export GCM_PATTERN="historical"
 export EXPERIMENT="FireOn"
 export PROCESS="noProcess"
 export PROCESS_FROM_LIST="true"
-export OVERSHOOT="false"
+export OVERSHOOT="true"
+export PATH_GS_MERGE_CSV="path_gs_merge_overshoot_rerun.csv"
 export FILTERED="true"
 export PROCESS_ROWS="all"
-export PROCESS_ROW_LIST=""
+export PROCESS_ROW_LIST="2"
 export SKIP_DOWNLOAD_IF_EXISTS="false"
 export MAX_WORKERS="1"
-export FIX_FILTERED_TIME_AND_COORDS="false"
+# RawOutputRepeat Split5 active bbox (inclusive row/col ends); full WIEMIP grid 123x720
+export MERGE_SPATIAL_BBOX="34,108,0,719"
+export FULL_SPATIAL_SHAPE="123,720"
+export FIX_FILTERED_TIME_AND_COORDS="true"
 export ADD_COORDS_BEFORE_FIX="true"
 export RUN_MASK="/mnt/disks/wiemip-data/dvmdostem-wiemip/post-processing/run-mask2.nc"
 
-# The variables to process and copy
 VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
 
-# Time aggregation settings
 export AGG_ALD="mean"
 export AGG_AVLN="mean"
 export AGG_BURNSOIL2AIRC="sum"
@@ -54,4 +54,3 @@ export AGG_VEGC="mean"
 export AGG_VEGNTOT="mean"
 export AGG_VWCLAYER="mean"
 export AGG_WATERTAB="mean"
-#<MODEL_NAME>_<gcm_pattern_short_name>_<experiment_short_name>_<variable_name>_<frequency>_noProcess_<spatial_resolution_short_name>.nc

@@ -1,88 +1,131 @@
 # WIEMIP Post-Processing Pipeline
 
-This directory contains the automated pipeline for downloading, merging, converting, and plotting the DVM-DOS-TEM output data for the WIEMIP project.
+This directory contains the automated pipeline for downloading, merging, converting, filtering, and plotting DVM-DOS-TEM output for WIEMIP.
 
-## 1. Preparing and Running the Pipeline
+## 1. Configuration and entry point
 
-### Configuration
-Before running, you should configure the pipeline by editing `config.sh`:
-- **`PROCESS_FROM_LIST`**: Set to `"true"` to enable batch processing of multiple cases using CSV lists, or `"false"` to run a single case.
-- **`VAR_NAMES=(...)`**: Add or remove the variables you want to process in this space-separated list.
-- **`AGG_*`**: Set the time aggregation method (`mean` or `sum`) used when plotting spatial maps for each variable.
-- **`WET_RUN` and `BASE_RUN`**: (Single-case mode only) Ensure the GCS bucket links point to your intended simulation folders.
-- **`GCM_PATTERN` and `EXPERIMENT`**: These metadata tags are used by the Python script to build the standardized WIEMIP output filenames (e.g., `DVMDOSTEM_CRUJRA_historical_...nc`).
-
-### Batch Processing Mode
-When `PROCESS_FROM_LIST="true"`, the pipeline dynamically processes multiple cases based on two CSV files:
-1. **`path_gs_merge.csv`**: Maps a specific `run_case` to its Google Cloud Storage `location`.
-2. **`processing_combine_list.csv`**: Defines the cases to process. For each row, it specifies the `WIEMIP_Experiment_Prefix`, the `Base_Run`, the `Wet_Run`, and a boolean `Combine` flag. 
-   - The script automatically creates isolated output directories for each prefix.
-   - It downloads the necessary files via `gsutil`.
-   - If `Combine` is `FALSE`, the script overrides the merging logic and processes the base run only.
-
-### How to Run
-Once your `config.sh` is configured, simply execute the `setup.sh` script:
+Edit **`config.sh`** (or a case-specific config such as **`config_overshoot_historic_rerun.sh`**) and run:
 
 ```bash
-cd ~/dvmdostem-wiemip/post-processing
+cd post-processing
 time ./setup.sh
 ```
 
-**What the script does automatically:**
-1. Creates the necessary local output folders (dynamically per case if in batch mode).
-2. Uses `gsutil cp` to download the specific `VAR_NAMES` from your Google Cloud Storage buckets into `base_run/` and `wet_run/` local directories.
-3. Activates the Python virtual environment (`~/venv/bin/activate`).
-4. Executes the Python processing engine (`process_wiemip.py`), which generates the final `.nc` datasets and `.png` figures.
+Use an alternate config without editing the default file:
 
-## 2. Output Paths and Data Structure
-
-By default, all downloaded data, processed output, and generated figures are routed to the external mounted disk.
-
-**Default Output Path:** `/mnt/disks/wiemip-data/output`
-*(In batch mode, subdirectories are created dynamically based on the `WIEMIP_Experiment_Prefix`)*
-
-You can change this target directory by opening the `setup.sh` file and editing the `OUTPUT_DIR` variable near the top of the file.
-
-Inside this directory, the following structure will be created:
-- `base_run/`: Holds the raw `.nc` files downloaded from the BASE_RUN bucket.
-- `wet_run/`: Holds the raw `.nc` files downloaded from the WET_RUN bucket.
-- `wiemip_output/`: Contains the final, merged, and unit-converted NetCDF datasets using the standardized WIEMIP naming convention.
-- `figures/`: Contains the generated 3x3 summary diagnostic plots (`.png`), and additional depth profile plots for multi-layer variables.
-
-## 3. Variable Classes and Math Operations
-
-The `output_conversion_table.csv` drives the processing logic and supports five `VarClass` types:
-- **`1_Units_only`**: Converts units while preserving the file structure.
-- **`2_Sum_by_PFT`**: Aggregates data across Plant Functional Types (PFTs).
-- **`3_Sum_by_layer`**: Aggregates data across soil layers.
-- **`4_Math`**: Applies mathematical operations (Add, Subtract, Multiply, Divide) between two previously processed WIEMIP variables.
-- **`5_Ignore_for_now`**: Skips processing for the variable.
-
-## 4. The Merging Equation
-
-For variables marked with a `1` in the "merge" column of `output_conversion_table.csv` (and when `Combine` is TRUE in batch mode), the pipeline blends the data from the `BASE_RUN` and `WET_RUN` datasets based on the fractional wetland vegetation coverage.
-
-The coverage map is automatically loaded from `wetland.nc` (`veg_pct_cov`). 
-The fractional coverage is calculated as `veg_cov_fraction = veg_pct_cov * 0.01`.
-
-For valid, common grid cells where both `wet` and `base` data exist, the equation applied is:
-```
-Merged Value = (Base_Data * veg_cov_fraction) + (Wet_Data * (1.0 - veg_cov_fraction))
+```bash
+export WIEMIP_CONFIG=config_overshoot_historic_rerun.sh
+time ./setup.sh
 ```
 
-*Note: Missing ocean cells (e.g., `_FillValue = -9999.0` or `NaN`) are carefully tracked and preserved throughout the calculations so they remain fully transparent in the spatial map plots.*
+### Main `config.sh` options
 
-## 5. Handling 4-Dimensional Variables
+| Variable | Purpose |
+|----------|---------|
+| `PROCESS_FROM_LIST` | `"true"`: batch mode from CSV lists; `"false"`: single `BASE_RUN` / `WET_RUN` |
+| `OVERSHOOT` | `"true"`: use `path_gs_merge_overshoot.csv` and `processing_combine_list_overshoot.csv` |
+| `PATH_GS_MERGE_CSV` | Optional override (e.g. `path_gs_merge_overshoot_rerun.csv`) |
+| `OUTPUT_DIR` | Root for `raw_cache/`, per-case outputs, and figures |
+| `FILTERED` | `"true"`: run `filter_processed_data_v1.py` after each case |
+| `FIX_FILTERED_TIME_AND_COORDS` | `"true"`: after filtering, run coord + time fix on `filtered_wiemip_output` |
+| `ADD_COORDS_BEFORE_FIX` | `"true"`: call `add_coords_from_runmask.py` before `fix_time_and_coords.py` |
+| `RUN_MASK` | NetCDF with `X`, `Y`, `lat`, `lon` (default: `run-mask2.nc` in this directory) |
+| `MERGE_SPATIAL_BBOX` / `FULL_SPATIAL_SHAPE` | For cropped RawOutputRepeat grids (inclusive row/col ends, then embed to full 123×720) |
+| `PROCESS_ROW_LIST` | 1-based row indices in the combine list (e.g. `2` = historic, `3` = `l`) |
+| `VAR_NAMES`, `AGG_*` | Variables to download/process and map aggregation for figures |
 
-4D variables (Time, Layer, Y, X) such as `TLAYER`, `VWCLAYER`, and `RHSOM` are extremely massive files (e.g., up to ~5GB compressed per variable) and require specialized handling to prevent Out-Of-Memory (OOM) crashes in Python.
+### Batch CSV files
 
-**Memory-Optimized Streaming:**
-Instead of loading the entire dataset into memory simultaneously (which would cause a Dask graph explosion consuming 50+ GB of RAM), `process_wiemip.py` dynamically probes the dataset's native internal time-chunking layout. It processes the dataset using a highly optimized pure-`netCDF4` memory stream:
-1. It reads native time chunks directly from the disk into memory (typically 120 time-steps, equal to 10 years of data, peaking at a very safe ~1.5 to 2.5 GB of RAM).
-2. It strictly enforces `float32` typing and applies the merging equations and unit conversions entirely in-place.
-3. It immediately syncs the processed block directly back to the final output file on the disk and forcefully purges memory before loading the next chunk.
+- **`path_gs_merge.csv`** / **`path_gs_merge_overshoot.csv`**: `run_case` → GCS folder with `{VAR}_*.nc`
+- **`path_gs_merge_overshoot_rerun.csv`**: alternate GCS paths for overshoot reruns (e.g. RawOutputRepeat historic FireOn)
+- **`processing_combine_list_overshoot.csv`**: `WIEMIP_Experiment_Prefix`, `Base_Run`, `Wet_Run`, `Combine`
 
-**Specialized Plotting:**
-For 4-dimensional data, the script provides advanced plotting logic:
-- The 3x3 summary figures average the timeseries plot across the **top layer [0]** and **bottom layer [N]** to give a bound representation of the soil profile.
-- A secondary diagnostic plot (`*_depth_climatology.png`) is exclusively generated for 4D datasets. It collapses the geographic dimensions to show a full monthly Climatology Profile heatmap (Time vs. Depth) and an overall statistical bounding profile (Min, Mean, Max values across depths).
+## 2. What `setup.sh` does
+
+1. Sources `config.sh` (or `WIEMIP_CONFIG`).
+2. Activates `venv/` (creates it if missing).
+3. Runs **`process_wiemip.py`** (download to shared `raw_cache/`, merge, convert, figures).
+4. If `FILTERED=true`, runs **`filter_processed_data_v1.py`** per case → **`filtered_wiemip_output/`**.
+5. If `FIX_FILTERED_TIME_AND_COORDS=true`:
+   - Optional **`add_coords_from_runmask.py`** (in-place on filtered files)
+   - **`fix_time_and_coords.py`** (rebuild time + coords; copies back to `filtered_wiemip_output/`)
+   - Also writes **`ProcessedOutput_fixed/<case>/`**
+
+## 3. Overshoot rerun wrappers
+
+| Script | Config | Case (row) |
+|--------|--------|------------|
+| `./run_historic_overshoot_rerun.sh` | `config_overshoot_historic_rerun.sh` | `DVM-DOS-TEM_historic` (row 2) |
+| `./run_overshoot_l_rerun.sh` | `config_overshoot_l_rerun.sh` | `DVM-DOS-TEM_l` (row 3) |
+
+Default output root: `/mnt/disks/wiemip-data/re-run-overshoot`.
+
+Historic rerun uses RawOutputRepeat FireOn (`all_merged_filtered`) with **`MERGE_SPATIAL_BBOX=34,108,0,719`**; `l` uses full-grid RawOutput paths (no bbox).
+
+## 4. Output layout (batch mode)
+
+Under `OUTPUT_DIR/`:
+
+```text
+raw_cache/<Base_or_Wet_run_name>/     # shared downloads
+DVM-DOS-TEM_<case>/
+  wiemip_output/                      # merged WIEMIP NetCDFs
+  filtered_wiemip_output/             # range-filtered products
+  figures/                            # diagnostic PNGs
+ProcessedOutput_fixed/<case>/         # copy after time/coord fix (when enabled)
+fix_input/                            # staging for fix_time_and_coords
+```
+
+## 5. Coordinate and time utilities
+
+- **`add_coords_from_runmask.py`**: attach `X`, `Y`, `lat`, `lon` from run-mask; does not fix time.
+- **`fix_time_and_coords.py`**: rebuild overshoot/1pctCO2 time axes and coords (from [wiemip_scripts](https://github.com/chujin/wiemip_scripts)); can run standalone on a staged case folder under `fix_input/<case>_filtered_with_coord/`.
+
+Example (single case, after filtering):
+
+```bash
+python add_coords_from_runmask.py \
+  --data-dir /path/to/DVM-DOS-TEM_historic/filtered_wiemip_output \
+  --run-mask ./run-mask2.nc --inplace --overwrite-coords
+
+python fix_time_and_coords.py \
+  --input-root /path/to/fix_input \
+  --outdir-root /path/to/output_root \
+  --run-mask ./run-mask2.nc \
+  --cases DVM-DOS-TEM_historic_filtered_with_coord --overwrite
+```
+
+## 6. Variable processing
+
+**`output_conversion_table.csv`** defines `VarClass` (units, PFT/layer sums, math) and merge flags.
+
+**`output_filters_v1.csv`** drives **`filter_processed_data_v1.py`** value ranges.
+
+## 7. Merging equation
+
+When `Combine` is TRUE, wetland fraction from **`wetland.nc`** (`veg_pct_cov`):
+
+```text
+Merged = (Base * veg_frac) + (Wet * (1 - veg_frac))
+```
+
+For cropped base grids, set **`MERGE_SPATIAL_BBOX`** and **`FULL_SPATIAL_SHAPE`** so wet/mask slices align and outputs are embedded on the full WIEMIP grid.
+
+## 8. Memory and 4D variables
+
+`process_wiemip.py` streams large 4D fields in native time chunks (~120 steps) via `netCDF4` to limit RAM. See inline handling for `TLAYER`, `VWCLAYER`, `RHSOM`, etc.
+
+## 9. Analysis plots
+
+Repository **`analysis/plot_overshoot_new.py`** plots domain-mean timeseries from filtered products:
+
+```bash
+../post-processing/venv/bin/python ../analysis/plot_overshoot_new.py \
+  --var gpp --freq mon --agg mean \
+  --data-root /mnt/disks/wiemip-data/re-run-overshoot \
+  --input-subdir filtered \
+  --scenarios historic l \
+  --outdir /mnt/disks/wiemip-data/re-run-overshoot/analysis_figures
+```
+
+Use subfolder **`filtered`** or **`filtered_wiemip_output`** (script tries both).
