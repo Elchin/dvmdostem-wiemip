@@ -18,10 +18,6 @@ export PROCESS_ROWS="all"
 export PROCESS_ROW_LIST=""
 export SKIP_DOWNLOAD_IF_EXISTS="false"
 export MAX_WORKERS="1"
-export FIX_FILTERED_TIME_AND_COORDS="false"
-export ADD_COORDS_BEFORE_FIX="true"
-export RUN_MASK="/mnt/disks/wiemip-data/dvmdostem-wiemip/post-processing/run-mask2.nc"
-
 # The variables to process and copy
 VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
 

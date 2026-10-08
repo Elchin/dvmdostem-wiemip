@@ -1,9 +1,9 @@
 #!/bin/bash
-# Historic overshoot rerun: RawOutputRepeat FireOn + RawOutput Wetland merge.
+# Historic overshoot: full-grid RawOutput FireOn + Wetland merge (see path_gs_merge_overshoot_rerun.csv).
 # Use with: WIEMIP_CONFIG=config_overshoot_historic_rerun.sh ./run_historic_overshoot_rerun.sh
 
 WET_RUN="gs://wiemip/OvershootOutput/RawOutput/historic/Special_historic_Wetland_split/all_merged_restored"
-BASE_RUN="gs://wiemip/OvershootOutput/RawOutputRepeat/historic/Special_historic_FireOn/Special_historic_FireOn_1_Split5/all_merged_filtered"
+BASE_RUN="gs://wiemip/OvershootOutput/RawOutput/historic/Special_historic_FireOn_1_Merged1"
 
 export OUTPUT_DIR="/mnt/disks/wiemip-data/re-run-overshoot"
 export GCM_PATTERN="historical"
@@ -14,17 +14,13 @@ export OVERSHOOT="true"
 export PATH_GS_MERGE_CSV="path_gs_merge_overshoot_rerun.csv"
 export FILTERED="true"
 export PROCESS_ROWS="all"
-export PROCESS_ROW_LIST="2"
-export SKIP_DOWNLOAD_IF_EXISTS="false"
+export PROCESS_ROW_LIST="2,3"
+export SKIP_DOWNLOAD_IF_EXISTS="true"
 export MAX_WORKERS="1"
-# RawOutputRepeat Split5 active bbox (inclusive row/col ends); full WIEMIP grid 123x720
-export MERGE_SPATIAL_BBOX="34,108,0,719"
-export FULL_SPATIAL_SHAPE="123,720"
-export FIX_FILTERED_TIME_AND_COORDS="true"
-export ADD_COORDS_BEFORE_FIX="true"
-export RUN_MASK="/mnt/disks/wiemip-data/dvmdostem-wiemip/post-processing/run-mask2.nc"
 
-VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
+VAR_NAMES=(SOC)
+    
+#ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
 
 export AGG_ALD="mean"
 export AGG_AVLN="mean"

@@ -100,8 +100,6 @@ def parse_config():
         'overshoot': False,
         'filtered': False,
         'path_gs_merge_csv': '',
-        'merge_spatial_bbox': None,
-        'full_spatial_shape': None,
     }
     if os.path.exists(CONFIG_SH_PATH):
         with open(CONFIG_SH_PATH, 'r') as f:
@@ -146,118 +144,26 @@ def parse_config():
                     config['filtered'] = (val == 'true')
                 elif line.startswith('export PATH_GS_MERGE_CSV='):
                     config['path_gs_merge_csv'] = line.split('=', 1)[1].strip('\'"')
-                elif line.startswith('export MERGE_SPATIAL_BBOX='):
-                    config['merge_spatial_bbox'] = _parse_spatial_bbox(
-                        line.split('=', 1)[1].strip('\'"')
-                    )
-                elif line.startswith('export FULL_SPATIAL_SHAPE='):
-                    config['full_spatial_shape'] = _parse_full_spatial_shape(
-                        line.split('=', 1)[1].strip('\'"')
-                    )
     
     config['OUTPUT_DIR'] = os.environ.get('OUTPUT_DIR', config['OUTPUT_DIR'])
     config['path_gs_merge_csv'] = os.environ.get(
         'PATH_GS_MERGE_CSV', config['path_gs_merge_csv']
     )
-    if os.environ.get('MERGE_SPATIAL_BBOX'):
-        config['merge_spatial_bbox'] = _parse_spatial_bbox(os.environ['MERGE_SPATIAL_BBOX'])
-    if os.environ.get('FULL_SPATIAL_SHAPE'):
-        config['full_spatial_shape'] = _parse_full_spatial_shape(os.environ['FULL_SPATIAL_SHAPE'])
     config['RAW_CACHE_DIR'] = os.path.join(config['OUTPUT_DIR'], 'raw_cache')
     return config
 
 
-def _parse_spatial_bbox(value):
-    if not value or not str(value).strip():
-        return None
-    parts = [int(x.strip()) for x in str(value).split(',')]
-    if len(parts) != 4:
-        raise ValueError(f"MERGE_SPATIAL_BBOX must be row_start,row_end,col_start,col_end (inclusive ends); got {value!r}")
-    return {
-        'row_start': parts[0],
-        'row_end': parts[1],
-        'col_start': parts[2],
-        'col_end': parts[3],
-    }
-
-
-def _parse_full_spatial_shape(value):
-    if not value or not str(value).strip():
-        return None
-    parts = [int(x.strip()) for x in str(value).split(',')]
-    if len(parts) != 2:
-        raise ValueError(f"FULL_SPATIAL_SHAPE must be ny,nx; got {value!r}")
-    return tuple(parts)
-
-
-def _yx_slices(bbox):
-    return (
-        slice(bbox['row_start'], bbox['row_end'] + 1),
-        slice(bbox['col_start'], bbox['col_end'] + 1),
-    )
-
-
-def _align_veg_fraction(veg_fraction_np, base_ny, base_nx, spatial_bbox):
+def _align_veg_fraction(veg_fraction_np, base_ny, base_nx):
     ny, nx = veg_fraction_np.shape
     if (ny, nx) == (base_ny, base_nx):
         return veg_fraction_np
-    if spatial_bbox is None:
-        raise ValueError(
-            f"Cannot merge: base grid ({base_ny}, {base_nx}) != wetland mask ({ny}, {nx}). "
-            "Set MERGE_SPATIAL_BBOX (inclusive row/col ends from split metadata)."
-        )
-    ys, xs = _yx_slices(spatial_bbox)
-    aligned = veg_fraction_np[ys, xs]
-    if aligned.shape != (base_ny, base_nx):
-        raise ValueError(
-            f"Bbox slice {aligned.shape} does not match base grid ({base_ny}, {base_nx}); "
-            f"check MERGE_SPATIAL_BBOX={spatial_bbox}"
-        )
-    return aligned
+    raise ValueError(
+        f"Cannot merge: base grid ({base_ny}, {base_nx}) != wetland mask ({ny}, {nx}). "
+        "Base and wetland runs must share the same spatial grid."
+    )
 
 
-def _slice_array_on_yx(arr, y_axis, x_axis, spatial_bbox):
-    if spatial_bbox is None:
-        return arr
-    ys, xs = _yx_slices(spatial_bbox)
-    sl = [slice(None)] * arr.ndim
-    sl[y_axis] = ys
-    sl[x_axis] = xs
-    return arr[tuple(sl)]
-
-
-def _embed_array_to_full_grid(arr, dim_names, spatial_bbox, full_spatial_shape, fill_val):
-    if spatial_bbox is None or full_spatial_shape is None:
-        return arr
-    ny_full, nx_full = full_spatial_shape
-    y_axis = dim_names.index('y')
-    x_axis = dim_names.index('x')
-    ny, nx = arr.shape[y_axis], arr.shape[x_axis]
-    if (ny, nx) == (ny_full, nx_full):
-        return arr
-    ys, xs = _yx_slices(spatial_bbox)
-    out_shape = list(arr.shape)
-    out_shape[y_axis] = ny_full
-    out_shape[x_axis] = nx_full
-    fill = fill_val if fill_val is not None else np.nan
-    full = np.full(out_shape, fill, dtype=arr.dtype)
-    sl = [slice(None)] * arr.ndim
-    sl[y_axis] = ys
-    sl[x_axis] = xs
-    full[tuple(sl)] = arr
-    return full
-
-
-def _output_spatial_dim_len(dim_name, dim_len, spatial_bbox, full_spatial_shape):
-    if spatial_bbox and full_spatial_shape:
-        if dim_name == 'y':
-            return full_spatial_shape[0]
-        if dim_name == 'x':
-            return full_spatial_shape[1]
-    return dim_len
-
-
-def _veg_lat_lon_for_map(da_map, ds_veg, spatial_bbox):
+def _veg_lat_lon_for_map(da_map, ds_veg):
     lat = ds_veg['lat']
     lon = ds_veg['lon']
     if da_map.ndim != 2:
@@ -265,9 +171,6 @@ def _veg_lat_lon_for_map(da_map, ds_veg, spatial_bbox):
     ny, nx = da_map.shape
     if lat.shape == (ny, nx):
         return lat, lon
-    if spatial_bbox is not None:
-        ys, xs = _yx_slices(spatial_bbox)
-        return lat.isel(y=ys, x=xs), lon.isel(y=ys, x=xs)
     return lat, lon
 
 
@@ -501,7 +404,7 @@ def save_depth_climatology_figure(wiemip_name, da_layer, figures_dir, units, suf
     })
     # #endregion
 
-def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg, spatial_bbox=None):
+def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg):
     if ds is None or var_name not in ds:
         for col_idx in range(3):
             ax = fig.add_subplot(3, 3, row_idx * 3 + col_idx + 1)
@@ -596,7 +499,7 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg, 
     if time_len > 0 and da_first_map.ndim == 2:
         ax1 = fig.add_subplot(3, 3, row_idx * 3 + 1, projection=ccrs.NorthPolarStereo())
         ax1.set_extent([-180, 180, 45, 90], ccrs.PlateCarree())
-        lat_c, lon_c = _veg_lat_lon_for_map(da_first_map, ds_veg, spatial_bbox)
+        lat_c, lon_c = _veg_lat_lon_for_map(da_first_map, ds_veg)
         da_first_map = da_first_map.assign_coords(lat=lat_c, lon=lon_c)
         im1 = da_first_map.plot.pcolormesh(ax=ax1, x='lon', y='lat', transform=ccrs.PlateCarree(), add_colorbar=False)
         ax1.coastlines()
@@ -613,7 +516,7 @@ def plot_row(fig, row_idx, var_name, ds, title_prefix, agg_type, units, ds_veg, 
     if time_len > 0 and da_last_map.ndim == 2:
         ax2 = fig.add_subplot(3, 3, row_idx * 3 + 2, projection=ccrs.NorthPolarStereo())
         ax2.set_extent([-180, 180, 45, 90], ccrs.PlateCarree())
-        lat_c, lon_c = _veg_lat_lon_for_map(da_last_map, ds_veg, spatial_bbox)
+        lat_c, lon_c = _veg_lat_lon_for_map(da_last_map, ds_veg)
         da_last_map = da_last_map.assign_coords(lat=lat_c, lon=lon_c)
         im2 = da_last_map.plot.pcolormesh(ax=ax2, x='lon', y='lat', transform=ccrs.PlateCarree(), add_colorbar=False)
         ax2.coastlines()
@@ -748,9 +651,6 @@ def _process_case_impl(case_config):
     ds_veg = xr.open_dataset(VEG_PATH).rename({'X': 'x', 'Y': 'y'})
     veg_cov = ds_veg['veg_pct_cov'].drop_vars(['x', 'y'], errors='ignore')
     veg_fraction_np = (veg_cov.values * 0.01).astype(np.float32)
-    spatial_bbox = case_config.get('merge_spatial_bbox')
-    full_spatial_shape = case_config.get('full_spatial_shape')
-    
     var_config = case_config['var_config']
     processing_order = case_config['processing_order']
     time_aggregation = case_config['time_aggregation']
@@ -847,10 +747,6 @@ def _process_case_impl(case_config):
                                 nc_out.createDimension(dim_name, num_times)
                             else:
                                 dim_len = len(dim) if not dim.isunlimited() else None
-                                if dim_len is not None:
-                                    dim_len = _output_spatial_dim_len(
-                                        dim_name, dim_len, spatial_bbox, full_spatial_shape
-                                    )
                                 nc_out.createDimension(dim_name, dim_len)
                             
                         for v_name, v_in in nc_base.variables.items():
@@ -949,11 +845,9 @@ def _process_case_impl(case_config):
                                 x_axis = var_dim_names.index('x')
                                 base_ny, base_nx = base_t_slice.shape[y_axis], base_t_slice.shape[x_axis]
                                 veg_merge = _align_veg_fraction(
-                                    veg_fraction_np, base_ny, base_nx, spatial_bbox
+                                    veg_fraction_np, base_ny, base_nx
                                 )
-                                wet_aligned = _slice_array_on_yx(
-                                    wet_t_slice, y_axis, x_axis, spatial_bbox
-                                )
+                                wet_aligned = wet_t_slice
                                 if fill_val is not None:
                                     wet_valid = (wet_aligned != fill_val) & ~np.isnan(wet_aligned)
                                 else:
@@ -992,14 +886,6 @@ def _process_case_impl(case_config):
                                 if is_missing is not None:
                                     out_t = np.where(is_missing, fill_val, out_t)
 
-                            out_t = _embed_array_to_full_grid(
-                                out_t,
-                                list(out_dims),
-                                spatial_bbox,
-                                full_spatial_shape,
-                                fill_val,
-                            )
-                                    
                             # Suppress numpy deprecation warning for shape assignment
                             import warnings
                             with warnings.catch_warnings():
@@ -1028,11 +914,9 @@ def _process_case_impl(case_config):
                     x_axis = base_dims.index('x')
                     base_ny, base_nx = base_vals.shape[y_axis], base_vals.shape[x_axis]
                     veg_merge = _align_veg_fraction(
-                        veg_fraction_np, base_ny, base_nx, spatial_bbox
+                        veg_fraction_np, base_ny, base_nx
                     )
-                    wet_aligned = _slice_array_on_yx(
-                        wet_vals, y_axis, x_axis, spatial_bbox
-                    )
+                    wet_aligned = wet_vals
                     has_wet = ~np.isnan(wet_aligned)
                     merged_vals = (
                         base_vals * veg_merge + wet_aligned * (1.0 - veg_merge)
@@ -1051,24 +935,9 @@ def _process_case_impl(case_config):
                         ds_layerdz.close()
                         
                 out_vals = apply_unit_conversions(out_vals, conf, None, layerdz_vals)
-                fill_for_embed = None
-                if hasattr(base_slice, '_FillValue'):
-                    fill_for_embed = base_slice._FillValue
-                out_vals = _embed_array_to_full_grid(
-                    out_vals,
-                    list(base_slice.dims),
-                    spatial_bbox,
-                    full_spatial_shape,
-                    fill_for_embed,
-                )
-                
+
                 da_out = base_slice.copy(data=out_vals)
-                if full_spatial_shape and spatial_bbox:
-                    da_out = da_out.assign_coords(
-                        y=np.arange(full_spatial_shape[0]),
-                        x=np.arange(full_spatial_shape[1]),
-                    )
-                
+
                 if var_class == '2_Sum_by_PFT':
                     da_out = da_out.sum(dim='pft', skipna=True, min_count=1)
                 elif var_class == '3_Sum_by_layer':
@@ -1098,17 +967,17 @@ def _process_case_impl(case_config):
             
             fig.suptitle(f'Variable: {variable1} -> {wiemip_name} (Merge: {merge}) | Shape: {overall_shape}', fontsize=16)
             
-            plot_row(fig, 0, variable1, ds_base_plot, f'Base Run ({variable1})', agg, ds_base_plot[variable1].attrs.get('units', ''), ds_veg, spatial_bbox)
+            plot_row(fig, 0, variable1, ds_base_plot, f'Base Run ({variable1})', agg, ds_base_plot[variable1].attrs.get('units', ''), ds_veg)
             
             if wet_files:
                 ds_wet_plot = xr.open_dataset(wet_files[0])
-                plot_row(fig, 1, variable1, ds_wet_plot, f'Wet Run ({variable1})', agg, ds_wet_plot[variable1].attrs.get('units', ''), ds_veg, spatial_bbox)
+                plot_row(fig, 1, variable1, ds_wet_plot, f'Wet Run ({variable1})', agg, ds_wet_plot[variable1].attrs.get('units', ''), ds_veg)
                 ds_wet_plot.close()
             else:
-                plot_row(fig, 1, variable1, None, f'Wet Run ({variable1})', agg, '', ds_veg, spatial_bbox)
+                plot_row(fig, 1, variable1, None, f'Wet Run ({variable1})', agg, '', ds_veg)
                 
             ds_out_saved = xr.open_dataset(out_file)
-            plot_row(fig, 2, wiemip_name, ds_out_saved, f'WIEMIP Output ({wiemip_name})', agg, conf['wiemip_units'], ds_veg, spatial_bbox)
+            plot_row(fig, 2, wiemip_name, ds_out_saved, f'WIEMIP Output ({wiemip_name})', agg, conf['wiemip_units'], ds_veg)
             
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             
@@ -1288,8 +1157,6 @@ def main():
                 'process_suffix': process_suffix,
                 'var_names': config['var_names'],
                 'filtered': config['filtered'],
-                'merge_spatial_bbox': config.get('merge_spatial_bbox'),
-                'full_spatial_shape': config.get('full_spatial_shape'),
             }
             case_configs.append(case_config)
         

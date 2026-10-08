@@ -18,7 +18,6 @@ echo "Historic overshoot rerun started $(date -Iseconds)"
 echo "  OUTPUT_DIR=$OUTPUT_DIR"
 echo "  PATH_GS_MERGE_CSV=$PATH_GS_MERGE_CSV"
 echo "  PROCESS_ROW_LIST=$PROCESS_ROW_LIST"
-echo "  FIX_FILTERED_TIME_AND_COORDS=$FIX_FILTERED_TIME_AND_COORDS"
 echo "============================================================"
 
 if [[ "${CLEAR_FIREON_CACHE:-1}" == "1" ]]; then
@@ -26,7 +25,7 @@ if [[ "${CLEAR_FIREON_CACHE:-1}" == "1" ]]; then
 fi
 
 echo ""
-echo "--- WIEMIP post-process, filter, coords/time fix (setup.sh) ---"
+echo "--- WIEMIP post-process and filter (setup.sh) ---"
 cd "$DIR"
 time ./setup.sh
 
@@ -40,6 +39,5 @@ echo "============================================================"
 echo "Done $(date -Iseconds)"
 echo "  wiemip_output:          $CASE_DIR/wiemip_output"
 echo "  filtered_wiemip_output:   $FILTERED_DIR"
-echo "  ProcessedOutput_fixed:    $OUTPUT_DIR/ProcessedOutput_fixed/$CASE"
 echo "  log:                      $LOG"
 echo "============================================================"
