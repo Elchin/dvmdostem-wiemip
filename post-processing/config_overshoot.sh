@@ -1,9 +1,7 @@
 #!/bin/bash
-# Historic overshoot: full-grid RawOutput FireOn + Wetland merge (see path_gs_merge_overshoot_rerun.csv).
-# Use with: WIEMIP_CONFIG=config_overshoot_historic_rerun.sh ./run_historic_overshoot_rerun.sh
-
-WET_RUN="gs://wiemip/OvershootOutput/RawOutput/historic/Special_historic_Wetland_split/all_merged_restored"
-BASE_RUN="gs://wiemip/OvershootOutput/RawOutput/historic/Special_historic_FireOn_1_Merged1"
+# Overshoot post-processing (cases in processing_combine_list_overshoot.csv,
+# GCS paths in path_gs_merge_overshoot_rerun.csv). Used by run_overshoot.sh.
+# PROCESS_ROW_LIST: 1-based rows of the combine list, e.g. "1,3"; empty = all six cases.
 
 export OUTPUT_DIR="/mnt/disks/wiemip-data/re-run-overshoot"
 export GCM_PATTERN="historical"
@@ -14,13 +12,11 @@ export OVERSHOOT="true"
 export PATH_GS_MERGE_CSV="path_gs_merge_overshoot_rerun.csv"
 export FILTERED="true"
 export PROCESS_ROWS="all"
-export PROCESS_ROW_LIST="2,3"
+export PROCESS_ROW_LIST=""
 export SKIP_DOWNLOAD_IF_EXISTS="true"
 export MAX_WORKERS="1"
 
-VAR_NAMES=(SOC)
-    
-#ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
+VAR_NAMES=(ALD AVLN BURNSOIL2AIRC BURNVEG2AIRC CH4EFFLUXTOT DWDC EET GPP LAI LFNVC LFVC NETNMIN NPP NUPTAKELAB NUPTAKEST ORGN RHSOM SNOWTHICK SOC SOC0_100cm SWE TLAYER TRANSPIRATION VEGC VEGNTOT VWCLAYER WATERTAB cSoil gpp npp ra cSoilBelow1m fVegSoil fNup)
 
 export AGG_ALD="mean"
 export AGG_AVLN="mean"

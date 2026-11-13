@@ -55,25 +55,12 @@ When run, the script will create a new directory for the specified simulation in
 
 ## Post-processing and analysis
 
-After simulations finish, raw DVM-DOS-TEM output on GCS is converted to WIEMIP NetCDF products under `post-processing/`. See **[post-processing/README.md](post-processing/README.md)** for:
-
-- Batch merge/conversion (`setup.sh`, `process_wiemip.py`)
-- Overshoot reruns (`path_gs_merge_overshoot_rerun.csv`, `run_historic_overshoot_rerun.sh`, `run_overshoot_l_rerun.sh`)
-- Range filtering, time/coordinate fixes on filtered files
-- Optional coord utilities (`add_coords_from_runmask.py`, `fix_time_and_coords.py`)
-
-Quick start (default `config.sh`):
+After simulations finish, raw DVM-DOS-TEM output on GCS is converted to WIEMIP NetCDF products under `post-processing/`. See **[post-processing/README.md](post-processing/README.md)** for the full pipeline.
 
 ```bash
 cd post-processing
-time ./setup.sh
+./run_1pctCO2.sh      # 1pctCO2 experiments  -> /mnt/disks/wiemip-data/1pctCO2_processed_matchmerge
+./run_overshoot.sh    # overshoot experiments -> /mnt/disks/wiemip-data/re-run-overshoot
 ```
 
-Overshoot historic rerun example:
-
-```bash
-cd post-processing
-./run_historic_overshoot_rerun.sh
-```
-
-Timeseries comparison plots for processed cases live in **`analysis/`** (e.g. `plot_overshoot_new.py`).
+QA plots for processed cases live in **`analysis/`** (`plot_deltaC_1pctCO2.py`, `plot_overshoot_new.py`).

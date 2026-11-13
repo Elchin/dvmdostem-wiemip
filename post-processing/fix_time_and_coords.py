@@ -20,12 +20,29 @@ Outputs (same filenames) under:
   where <case> is the input folder name with trailing
   _filtered_with_coord removed (e.g. DVM-DOS-TEM_gfdl_cou).
 
-Example
--------
+Recommended simple usage
+------------------------
+  python fix_time_and_coords.py <input-root> [output-root] \\
+    --run-mask /path/to/run-mask2.nc
+
+Example (ProcessedOutputRepeat: filtered products per case)
+-----------------------------------------------------------
   python fix_time_and_coords.py \\
-    --input-root  /mnt/exacloud/$USER/wiemip/check_time_coordinate/ProcessedOutput \\
-    --outdir-root /mnt/exacloud/$USER/wiemip/check_time_coordinate \\
-    --run-mask    /mnt/exacloud/$USER/wiemip/inputs/teminputs/new/run-mask2.nc
+    /mnt/exacloud/$USER/wiemip/check_time_coordinate/ProcessedOutputRepeat \\
+    /mnt/exacloud/$USER/wiemip/check_time_coordinate \\
+    --case-input-subdir filtered_wiemip_output \\
+    --case-output-subdir filtered_wiemip_output_fixed \\
+    --run-mask   /mnt/exacloud/$USER/wiemip/inputs/teminputs/new/run-mask2.nc \\
+    --overwrite
+
+Example (central fixed tree: ProcessedOutputRepeat_fixed/<case>/*.nc)
+---------------------------------------------------------------------
+  python fix_time_and_coords.py \\
+    /mnt/exacloud/$USER/wiemip/check_time_coordinate/ProcessedOutputRepeat \\
+    --case-input-subdir filtered_wiemip_output \\
+    --aggregate-output-root /mnt/exacloud/$USER/wiemip/check_time_coordinate/ProcessedOutputRepeat_fixed \\
+    --run-mask /mnt/exacloud/$USER/wiemip/inputs/teminputs/new/run-mask2.nc \\
+    --overwrite
 """
 
 from __future__ import annotations
@@ -66,18 +83,66 @@ COORD_NAMES = ("X", "Y", "lat", "lon")
 def parse_args() -> argparse.Namespace:
     here = Path(__file__).resolve().parent
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--input-root", type=Path, default=here / "ProcessedOutput")
-    p.add_argument("--outdir-root", type=Path, default=here)
+    p.add_argument(
+        "input_root_arg",
+        nargs="?",
+        type=Path,
+        help="Root directory that contains case folders (preferred positional form).",
+    )
+    p.add_argument(
+        "outdir_root_arg",
+        nargs="?",
+        type=Path,
+        help="Optional output root (preferred positional form). Default: script directory.",
+    )
+    # Backward-compatible named forms:
+    p.add_argument("--input-root", dest="input_root_flag", type=Path, default=None)
+    p.add_argument("--outdir-root", dest="outdir_root_flag", type=Path, default=None)
     p.add_argument(
         "--run-mask",
         type=Path,
         default=Path("/mnt/exacloud/cchang_woodwellclimate_org/wiemip/inputs/teminputs/new/run-mask2.nc"),
     )
     p.add_argument("--cases", nargs="*", default=None)
+    p.add_argument(
+        "--case-input-subdir",
+        default=None,
+        help="Read *.nc from <case>/<subdir>/ (e.g. filtered_wiemip_output). "
+        "Default: *.nc directly under each case directory.",
+    )
+    p.add_argument(
+        "--case-output-subdir",
+        default=None,
+        help="Write fixed *.nc to <case>/<subdir>/ (e.g. filtered_wiemip_output_fixed). "
+        "Default: <outdir-root>/ProcessedOutput_fixed/<case>/.",
+    )
+    p.add_argument(
+        "--aggregate-output-root",
+        default=None,
+        type=Path,
+        help="Write fixed *.nc to <this>/<case>/ (e.g. ProcessedOutputRepeat_fixed). "
+        "Overrides --case-output-subdir and ProcessedOutput_fixed layout.",
+    )
+    p.add_argument(
+        "--file-patterns",
+        nargs="+",
+        default=["*.nc"],
+        help="Glob pattern(s) to pick files within each case input dir. "
+        "Examples: '*.nc' (default), '*soilT*.nc' '*mrsoLayer*.nc'",
+    )
     p.add_argument("--one-file", default=None, help=argparse.SUPPRESS)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--overwrite", action="store_true")
-    return p.parse_args()
+    args = p.parse_args()
+
+    if args.input_root_arg and args.input_root_flag:
+        p.error("Specify input root once: positional <input-root> OR --input-root.")
+    if args.outdir_root_arg and args.outdir_root_flag:
+        p.error("Specify output root once: positional [output-root] OR --outdir-root.")
+
+    args.input_root = args.input_root_arg or args.input_root_flag or (here / "ProcessedOutput")
+    args.outdir_root = args.outdir_root_arg or args.outdir_root_flag or here
+    return args
 
 
 def days_since_1850_yearly(n: int, start_year: int) -> np.ndarray:
@@ -300,6 +365,14 @@ def fix_one_file(
                 kwargs = {}
                 if fill is not None:
                     kwargs["fill_value"] = fill
+                filters = svar.filters() or {}
+                if filters.get("zlib"):
+                    kwargs["zlib"] = True
+                    kwargs["complevel"] = filters.get("complevel", 4)
+                    kwargs["shuffle"] = bool(filters.get("shuffle", False))
+                    chunks = svar.chunking()
+                    if isinstance(chunks, list):
+                        kwargs["chunksizes"] = chunks
 
                 # Always slab along time for multi-D fields to avoid HDF/segfaults
                 # on large (time, pft, y, x) arrays.
@@ -308,7 +381,12 @@ def fix_one_file(
                     t_axis = dims.index("time")
                     # smaller slabs for 4-D+ (e.g. pft)
                     slab = 1 if svar.ndim >= 4 else 6
-                    dvar = dst.createVariable(name, dtype, dims, zlib=False, **kwargs)
+                    # slabs smaller than a compressed time-chunk force repeated
+                    # decompress/recompress of the same chunk
+                    src_chunks = svar.chunking()
+                    if kwargs.get("zlib") and isinstance(src_chunks, list):
+                        slab = max(slab, src_chunks[svar.dimensions.index("time")])
+                    dvar = dst.createVariable(name, dtype, dims, **kwargs)
                     for t0 in range(0, n_time, slab):
                         t1 = min(t0 + slab, n_time)
                         slicer = [slice(None)] * svar.ndim
@@ -318,7 +396,7 @@ def fix_one_file(
                         if t0 % 120 == 0:
                             gc.collect()
                 else:
-                    dvar = dst.createVariable(name, dtype, dims, zlib=False, **kwargs)
+                    dvar = dst.createVariable(name, dtype, dims, **kwargs)
                     dvar[:] = np.array(svar[:], copy=True)
 
                 _copy_ncattrs(svar, dvar)
@@ -347,17 +425,69 @@ def fix_one_file(
     return report
 
 
-def list_case_dirs(input_root: Path, cases: Optional[List[str]]) -> List[Path]:
+def case_input_dir(case_dir: Path, case_input_subdir: Optional[str]) -> Path:
+    if case_input_subdir:
+        return case_dir / case_input_subdir
+    return case_dir
+
+
+def case_output_dir(
+    case_dir: Path,
+    case_name: str,
+    outdir_root: Path,
+    case_output_subdir: Optional[str],
+    aggregate_output_root: Optional[Path] = None,
+) -> Path:
+    clean_name = case_name.replace("_filtered_with_coord", "")
+    if aggregate_output_root is not None:
+        return aggregate_output_root / clean_name
+    if case_output_subdir:
+        return case_dir / case_output_subdir
+    return outdir_root / "ProcessedOutput_fixed" / clean_name
+
+
+def list_case_files(case_input: Path, file_patterns: List[str]) -> List[Path]:
+    """Return sorted unique files matched by one or more glob patterns."""
+    found: Dict[Path, None] = {}
+    for pattern in file_patterns:
+        for path in case_input.glob(pattern):
+            if path.is_file():
+                found[path] = None
+    return sorted(found.keys())
+
+
+def list_case_dirs(
+    input_root: Path,
+    cases: Optional[List[str]],
+    case_input_subdir: Optional[str] = None,
+    file_patterns: Optional[List[str]] = None,
+) -> List[Path]:
+    if file_patterns is None:
+        file_patterns = ["*.nc"]
     if cases:
         dirs = [input_root / c for c in cases]
         missing = [d for d in dirs if not d.is_dir()]
         if missing:
             raise SystemExit(f"Case dirs not found: {missing}")
+    else:
+        dirs = sorted(
+            p for p in input_root.iterdir()
+            if p.is_dir() and not p.name.endswith("_fixed")
+        )
+    if not case_input_subdir:
         return dirs
-    return sorted(
-        p for p in input_root.iterdir()
-        if p.is_dir() and not p.name.endswith("_fixed")
-    )
+    found: List[Path] = []
+    for case_dir in dirs:
+        indir = case_input_dir(case_dir, case_input_subdir)
+        if indir.is_dir() and list_case_files(indir, file_patterns):
+            found.append(case_dir)
+        else:
+            print(
+                f"WARNING: skip {case_dir.name} (no files matching {file_patterns} in {case_input_subdir})",
+                file=sys.stderr,
+                flush=True,
+            )
+    return found
 
 
 def _one_file_mode(args: argparse.Namespace) -> int:
@@ -366,13 +496,16 @@ def _one_file_mode(args: argparse.Namespace) -> int:
     outdir_root = args.outdir_root.expanduser().resolve()
     run_mask = args.run_mask.expanduser().resolve()
     case_name = args.cases[0]
-    src = input_root / case_name / args.one_file
-    dst = (
-        outdir_root
-        / "ProcessedOutput_fixed"
-        / case_name.replace("_filtered_with_coord", "")
-        / args.one_file
-    )
+    case_dir = input_root / case_name
+    src = case_input_dir(case_dir, args.case_input_subdir) / args.one_file
+    agg = args.aggregate_output_root.expanduser().resolve() if args.aggregate_output_root else None
+    dst = case_output_dir(
+        case_dir,
+        case_name,
+        outdir_root,
+        args.case_output_subdir,
+        agg,
+    ) / args.one_file
     mask = load_runmask_coords(run_mask)
     rep = fix_one_file(src, dst, mask, dry_run=False, overwrite=True)
     if rep["status"] != "ok":
@@ -406,6 +539,12 @@ def main() -> int:
 
     print(f"input-root : {input_root}")
     print(f"outdir-root: {outdir_root}")
+    if args.case_input_subdir:
+        print(f"case input : <case>/{args.case_input_subdir}/")
+    if args.aggregate_output_root:
+        print(f"aggregate out: {args.aggregate_output_root.expanduser().resolve()}/<case>/")
+    elif args.case_output_subdir:
+        print(f"case output: <case>/{args.case_output_subdir}/")
     print(f"run-mask   : {run_mask}")
     mask = load_runmask_coords(run_mask)
     print(
@@ -415,22 +554,34 @@ def main() -> int:
         f"[{float(mask['X'][0]):.2f} .. {float(mask['X'][-1]):.2f}]"
     )
 
-    case_dirs = list_case_dirs(input_root, args.cases)
+    case_dirs = list_case_dirs(
+        input_root, args.cases, args.case_input_subdir, args.file_patterns
+    )
     print(f"cases: {len(case_dirs)}")
+
+    agg_root = (
+        args.aggregate_output_root.expanduser().resolve()
+        if args.aggregate_output_root
+        else None
+    )
+    if agg_root:
+        agg_root.mkdir(parents=True, exist_ok=True)
 
     n_ok = n_skip = n_err = 0
     script = Path(__file__).resolve()
     for case_dir in case_dirs:
         case_name = case_dir.name
-        out_case = outdir_root / "ProcessedOutput_fixed" / case_name.replace(
-            "_filtered_with_coord", ""
+        in_case = case_input_dir(case_dir, args.case_input_subdir)
+        out_case = case_output_dir(
+            case_dir, case_name, outdir_root, args.case_output_subdir, agg_root
         )
+        out_case.mkdir(parents=True, exist_ok=True)
         for tmp in out_case.glob("*.nc.tmp"):
             try:
                 tmp.unlink()
             except OSError:
                 pass
-        files = sorted(case_dir.glob("*.nc"))
+        files = list_case_files(in_case, args.file_patterns)
         print(f"\n=== {case_name}  ({len(files)} files) → {out_case}/ ===", flush=True)
         for src in files:
             dst = out_case / src.name
@@ -464,6 +615,14 @@ def main() -> int:
                 "--one-file", src.name,
                 "--overwrite",
             ]
+            if args.case_input_subdir:
+                cmd.extend(["--case-input-subdir", args.case_input_subdir])
+            if args.case_output_subdir:
+                cmd.extend(["--case-output-subdir", args.case_output_subdir])
+            if args.aggregate_output_root:
+                cmd.extend(
+                    ["--aggregate-output-root", str(args.aggregate_output_root)]
+                )
             proc = subprocess.run(cmd, capture_output=True, text=True)
             out = (proc.stdout or "") + (proc.stderr or "")
             if proc.returncode == 0 and "ONEFILE_OK" in out:

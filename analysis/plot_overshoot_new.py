@@ -9,7 +9,12 @@ import pandas as pd
 def parse_args():
     parser = argparse.ArgumentParser(description="Plot overshoot timeseries data.")
     parser.add_argument("--var", required=True, help="Variable to plot (e.g., alt, gpp)")
-    parser.add_argument("--agg", default="mean", choices=["mean", "sum"], help="Spatial aggregation method")
+    parser.add_argument(
+        "--agg",
+        default="mean",
+        choices=["mean", "sum", "median"],
+        help="Spatial aggregation over y/x (domain statistic)",
+    )
     parser.add_argument("--freq", required=True, choices=["yr", "mon"], help="Frequency of the source data (yr or mon)")
     parser.add_argument("--layer", type=int, default=None, help="Optional index to slice 4D data (e.g., --layer 0)")
     parser.add_argument("--outdir", required=True, help="Output directory for figures")
@@ -35,7 +40,19 @@ def parse_args():
             "that exist under --data-root."
         ),
     )
+    parser.add_argument(
+        "--run-mask",
+        default=None,
+        help="Optional run-mask NetCDF; spatial agg uses only cells where run==1",
+    )
+    parser.add_argument(
+        "--stitch",
+        action="store_true",
+        help="Plot one continuous timeseries (scenarios sorted: ctrl, historic, l, hl, hl_cf, m)",
+    )
     return parser.parse_args()
+
+SCENARIO_ORDER = ("ctrl", "historic", "l", "hl", "hl_cf", "m")
 
 def _case_input_dirs(data_root, scenario, input_subdir):
     case = os.path.join(data_root, f"DVM-DOS-TEM_{scenario}")
@@ -68,7 +85,38 @@ def get_file_path(data_root, scenario, var, freq, input_subdir):
             return matches[0]
     return None
 
-def process_scenario(data_root, scenario, var, freq, agg_method, layer, start_year, input_subdir):
+def _load_domain_mask(run_mask_path):
+    if not run_mask_path:
+        return None
+    with xr.open_dataset(run_mask_path) as ds:
+        if "run" not in ds:
+            raise ValueError(f"run-mask missing 'run' variable: {run_mask_path}")
+        return ds["run"].values == 1
+
+
+def _spatial_reduce(da, agg_method, domain_mask):
+    if domain_mask is not None:
+        da = da.where(domain_mask)
+    if agg_method == "mean":
+        return da.mean(dim=["y", "x"], skipna=True)
+    if agg_method == "median":
+        return da.median(dim=["y", "x"], skipna=True)
+    if agg_method == "sum":
+        return da.sum(dim=["y", "x"], skipna=True)
+    raise ValueError(f"Unknown spatial agg: {agg_method}")
+
+
+def process_scenario(
+    data_root,
+    scenario,
+    var,
+    freq,
+    agg_method,
+    layer,
+    start_year,
+    input_subdir,
+    domain_mask=None,
+):
     path = get_file_path(data_root, scenario, var, freq, input_subdir)
     if not path:
         print(f"Warning: Data not found for scenario {scenario}")
@@ -103,11 +151,7 @@ def process_scenario(data_root, scenario, var, freq, agg_method, layer, start_ye
     except:
         units = ''
             
-    # Spatial aggregation
-    if agg_method == "mean":
-        da_agg = da.mean(dim=spatial_dims, skipna=True)
-    elif agg_method == "sum":
-        da_agg = da.sum(dim=spatial_dims, skipna=True)
+    da_agg = _spatial_reduce(da, agg_method, domain_mask)
     
     # Reconstruct time axis
     time_len = len(da_agg['time'])
@@ -150,11 +194,18 @@ def start_year_for_scenario(scenario):
     return 2024
 
 
+def _sort_scenarios(scenarios):
+    order = {name: i for i, name in enumerate(SCENARIO_ORDER)}
+    return sorted(scenarios, key=lambda s: order.get(s, len(SCENARIO_ORDER)))
+
+
 def main():
     args = parse_args()
     data_root = os.path.abspath(args.data_root)
     input_subdir = args.input_subdir
     scenarios = args.scenarios if args.scenarios else default_scenarios(data_root, input_subdir)
+    scenarios = _sort_scenarios(scenarios)
+    domain_mask = _load_domain_mask(args.run_mask)
 
     results = {}
     plot_units = ""
@@ -170,6 +221,7 @@ def main():
             args.layer,
             start_year,
             input_subdir,
+            domain_mask=domain_mask,
         )
         if res:
             results[scenario] = res[:2]
@@ -188,18 +240,44 @@ def main():
         
     # Plotting
     if args.freq == 'yr':
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        for scenario, (df, _) in results.items():
-            ax.plot(df['time'], df[args.var], label=scenario)
-            
-        ax.set_xlabel('Year')
-        ax.set_ylabel(y_label)
-        ax.set_title(f'Overshoot Timeseries: {args.var}')
-        ax.legend()
-        ax.grid(True)
-        
+        fig, ax = plt.subplots(figsize=(12, 6))
         layer_suffix = f"_layer{args.layer}" if args.layer is not None else ""
+
+        if args.stitch and len(results) > 1:
+            parts = []
+            for scenario in scenarios:
+                if scenario not in results:
+                    continue
+                df, _ = results[scenario]
+                parts.append(df[["time", args.var]].rename(columns={args.var: "value"}))
+            stitched = pd.concat(parts, ignore_index=True)
+            stitched = stitched.sort_values("time")
+            ax.plot(stitched["time"], stitched["value"], color="#333333", lw=1.8, label="stitched")
+            if len(results) == 2 and "historic" in results and "l" in results:
+                hdf = results["historic"][0]
+                jump = float(
+                    results["l"][0].loc[results["l"][0]["time"] == 2024, args.var].iloc[0]
+                    - hdf.loc[hdf["time"] == 2023, args.var].iloc[0]
+                )
+                ax.set_title(
+                    f"Overshoot Timeseries: {args.var} (stitched)\n"
+                    f"Boundary Δ(2024−2023) = {jump:.3g} {plot_units}".strip()
+                )
+            else:
+                ax.set_title(f"Overshoot Timeseries: {args.var} (stitched)")
+        else:
+            for scenario in scenarios:
+                if scenario not in results:
+                    continue
+                df, _ = results[scenario]
+                ax.plot(df["time"], df[args.var], label=scenario)
+            ax.set_title(f"Overshoot Timeseries: {args.var}")
+            ax.legend()
+
+        ax.set_xlabel("Year")
+        ax.set_ylabel(y_label)
+        ax.grid(True)
+
         out_path = os.path.join(args.outdir, f"overshoot_{args.var}_yr_{args.agg}{layer_suffix}.png")
         plt.tight_layout()
         plt.savefig(out_path, dpi=300)

@@ -126,18 +126,23 @@ def process_directory(case_dir, filters_csv, equations_csv):
                 
                 da = ds[var_name]
                 
-                # Check if it's a massive variable (e.g., rhLayers which is 4D)
-                if 'layer' in da.dims and 'time' in da.dims:
-                    print(f"    Skipping massive variable {var_name} to prevent OOM kills.")
-                    print(f"    Please filter this variable separately or on a machine with more memory.")
-                    continue
-                    
                 time_len = da.sizes.get('time', 0)
                 
-                # Check if filtering is actually needed by checking min/max of the whole array
-                # This is fast if the array fits in memory (which it does, since we skipped massive ones)
-                orig_min = float(da.min().compute())
-                orig_max = float(da.max().compute())
+                if 'layer' in da.dims and 'time' in da.dims:
+                    # 4D (time, layer, y, x) arrays do not fit in memory; reduce min/max per time chunk
+                    print(f"    Computing min/max of 4D variable {var_name} in time chunks...")
+                    orig_min, orig_max = np.nan, np.nan
+                    for t_start in range(0, time_len, 120):
+                        chunk = da.isel(time=slice(t_start, t_start + 120)).values
+                        if np.isnan(chunk).all():
+                            continue
+                        orig_min = np.nanmin([orig_min, np.nanmin(chunk)])
+                        orig_max = np.nanmax([orig_max, np.nanmax(chunk)])
+                        del chunk
+                    orig_min, orig_max = float(orig_min), float(orig_max)
+                else:
+                    orig_min = float(da.min().compute())
+                    orig_max = float(da.max().compute())
                 
                 needs_filtering = False
                 if not np.isnan(orig_min) and not np.isnan(orig_max):

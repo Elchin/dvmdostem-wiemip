@@ -2,8 +2,10 @@
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Source the configuration (override with WIEMIP_CONFIG=config_overshoot_historic_rerun.sh)
-source "$DIR/${WIEMIP_CONFIG:-config.sh}"
+# Source the configuration: WIEMIP_CONFIG=config_1pctCO2.sh or config_overshoot.sh
+: "${WIEMIP_CONFIG:?Set WIEMIP_CONFIG=config_1pctCO2.sh or WIEMIP_CONFIG=config_overshoot.sh}"
+export WIEMIP_CONFIG
+source "$DIR/$WIEMIP_CONFIG"
 
 if [ "$PROCESS_FROM_LIST" != "true" ]; then
     LOCAL_BASE_RUN="$OUTPUT_DIR/base_run"

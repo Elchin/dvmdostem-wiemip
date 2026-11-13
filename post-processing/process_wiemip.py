@@ -100,6 +100,8 @@ def parse_config():
         'overshoot': False,
         'filtered': False,
         'path_gs_merge_csv': '',
+        'merge_mask_dir': '',
+        'raw_cache_dir': '',
     }
     if os.path.exists(CONFIG_SH_PATH):
         with open(CONFIG_SH_PATH, 'r') as f:
@@ -144,13 +146,71 @@ def parse_config():
                     config['filtered'] = (val == 'true')
                 elif line.startswith('export PATH_GS_MERGE_CSV='):
                     config['path_gs_merge_csv'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export MERGE_MASK_DIR='):
+                    config['merge_mask_dir'] = line.split('=', 1)[1].strip('\'"')
+                elif line.startswith('export RAW_CACHE_DIR='):
+                    config['raw_cache_dir'] = line.split('=', 1)[1].strip('\'"')
     
     config['OUTPUT_DIR'] = os.environ.get('OUTPUT_DIR', config['OUTPUT_DIR'])
     config['path_gs_merge_csv'] = os.environ.get(
         'PATH_GS_MERGE_CSV', config['path_gs_merge_csv']
     )
-    config['RAW_CACHE_DIR'] = os.path.join(config['OUTPUT_DIR'], 'raw_cache')
+    config['merge_mask_dir'] = os.environ.get('MERGE_MASK_DIR', config['merge_mask_dir'])
+    config['raw_cache_dir'] = os.environ.get('RAW_CACHE_DIR', config['raw_cache_dir'])
+    config['RAW_CACHE_DIR'] = config['raw_cache_dir'] or os.path.join(
+        config['OUTPUT_DIR'], 'raw_cache'
+    )
     return config
+
+
+def resolve_merge_mask_path(merge_mask_dir, experiment_prefix, wet_run_name):
+    """Pick 2-D mask file from wetland run + experiment (ctrl/bgc vs COU)."""
+    if not merge_mask_dir or not wet_run_name or wet_run_name.upper() == 'NA':
+        return None
+    merge_mask_dir = (
+        merge_mask_dir
+        if os.path.isabs(merge_mask_dir)
+        else os.path.join(SCRIPT_DIR, merge_mask_dir)
+    )
+    if 'NitrogenOn' in wet_run_name:
+        fam = 'nitrogen_on'
+    elif 'WetlandOn' in wet_run_name:
+        fam = 'no_nitrogen'
+    else:
+        return None
+    if 'stable_ctrl' in experiment_prefix or 'stable_bgc' in experiment_prefix:
+        path = os.path.join(merge_mask_dir, f'merge_mask_{fam}_ctrl_bgc.nc')
+    elif 'ukesm' in experiment_prefix:
+        path = os.path.join(merge_mask_dir, f'merge_mask_{fam}_ukesm.nc')
+    elif 'ipst' in experiment_prefix:
+        path = os.path.join(merge_mask_dir, f'merge_mask_{fam}_ipsl.nc')
+    elif 'gfdl' in experiment_prefix:
+        path = os.path.join(merge_mask_dir, f'merge_mask_{fam}_gfdl.nc')
+    else:
+        return None
+    return path if os.path.isfile(path) else None
+
+
+def _load_merge_mask(path):
+    with nc.Dataset(path) as ds:
+        m = ds.variables['merge_mask'][:].astype(np.bool_)
+    return m
+
+
+def _apply_merge_mask(valid, merge_mask_np):
+    if merge_mask_np is None:
+        return valid
+    lead = valid.ndim - 2
+    if lead < 0:
+        return valid
+    if merge_mask_np.shape != valid.shape[-2:]:
+        raise ValueError(
+            f"merge_mask {merge_mask_np.shape} != field grid {valid.shape[-2:]}"
+        )
+    broadcast = merge_mask_np
+    for _ in range(lead):
+        broadcast = np.expand_dims(broadcast, axis=0)
+    return valid & broadcast
 
 
 def _align_veg_fraction(veg_fraction_np, base_ny, base_nx):
@@ -648,6 +708,13 @@ def _process_case_impl(case_config):
     os.makedirs(LOCAL_WIEMIP_OUTPUT, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
+    merge_mask_np = None
+    merge_mask_path = case_config.get('merge_mask_path')
+    if merge_mask_path:
+        print(f"  Using wetland merge mask: {merge_mask_path}")
+        merge_mask_np = _load_merge_mask(merge_mask_path)
+        print(f"  merge_mask cells: {int(merge_mask_np.sum())} / {merge_mask_np.size}")
+
     ds_veg = xr.open_dataset(VEG_PATH).rename({'X': 'x', 'Y': 'y'})
     veg_cov = ds_veg['veg_pct_cov'].drop_vars(['x', 'y'], errors='ignore')
     veg_fraction_np = (veg_cov.values * 0.01).astype(np.float32)
@@ -852,6 +919,7 @@ def _process_case_impl(case_config):
                                     wet_valid = (wet_aligned != fill_val) & ~np.isnan(wet_aligned)
                                 else:
                                     wet_valid = ~np.isnan(wet_aligned)
+                                wet_valid = _apply_merge_mask(wet_valid, merge_mask_np)
                                 merged_t = base_t_slice * veg_merge
                                 merged_t += wet_aligned * (1.0 - veg_merge)
                                 
@@ -918,6 +986,7 @@ def _process_case_impl(case_config):
                     )
                     wet_aligned = wet_vals
                     has_wet = ~np.isnan(wet_aligned)
+                    has_wet = _apply_merge_mask(has_wet, merge_mask_np)
                     merged_vals = (
                         base_vals * veg_merge + wet_aligned * (1.0 - veg_merge)
                     ).astype(np.float32)
@@ -1141,6 +1210,11 @@ def main():
             local_wiemip_output = os.path.join(case_output_dir, 'wiemip_output')
             figures_dir = os.path.join(case_output_dir, 'figures')
             
+            merge_mask_path = None
+            if combine_flag and config.get('merge_mask_dir'):
+                merge_mask_path = resolve_merge_mask_path(
+                    config['merge_mask_dir'], experiment_prefix, wet_run_name
+                )
             case_config = {
                 'experiment_prefix': experiment_prefix,
                 'local_base_run': local_base_run,
@@ -1157,6 +1231,7 @@ def main():
                 'process_suffix': process_suffix,
                 'var_names': config['var_names'],
                 'filtered': config['filtered'],
+                'merge_mask_path': merge_mask_path,
             }
             case_configs.append(case_config)
         
