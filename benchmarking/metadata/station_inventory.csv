@@ -1,7 +1,7 @@
-station_name,network,latitude,longitude,elevation_m,cmt,ecosystem,permafrost_zone,drainage_class,description,phase1_priority
-Deadhorse,GI-UAF,70.1997,-148.4597,10,CMT05,Tundra,Continuous,Upland,North Slope tundra on Arctic Coastal Plain,1
-Toolik,GI-UAF,68.6250,-149.5972,760,CMT05,Tundra,Continuous,Upland,Arctic foothills tundra near Toolik Lake,1
-Smith_Lake,GI-UAF,63.9897,-145.4019,700,CMT04,Boreal,Discontinuous,Lowland,Interior Alaska lowland with black spruce,2
+station_name,code,network,latitude,longitude,elevation_m,cmt,ecosystem,permafrost_zone,drainage_class,description,data_period,months_total,phase1_priority
+Deadhorse,88005,GI-UAF,70.161,-148.465,10,CMT05,Tundra,Continuous,Upland,North Slope tundra on Arctic Coastal Plain,1997-2016,240,1
+Imnaviat,88013,GI-UAF,68.640,-149.352,930,CMT05,Tundra,Continuous,Upland,"Arctic foothills tundra (Brooks Range), closest to Toolik coordinates",2006-2016,132,1
+Smith_Lake_1,88020,GI-UAF,64.869,-147.861,700,CMT04,Boreal,Discontinuous,Lowland,Interior Alaska boreal forest with black spruce,1997-2016,240,2
 Healy,GI-UAF,63.8761,-149.0933,650,CMT04,Boreal,Discontinuous,Upland,Interior Alaska mixed boreal forest,2
 Council,GI-UAF,64.8447,-163.6769,10,CMT05,Shrub_Tundra,Discontinuous,Upland,Seward Peninsula coastal shrub tundra,3
 Kougarok,GI-UAF,65.4536,-164.7903,450,CMT05,Shrub_Tundra,Continuous,Upland,Seward Peninsula upland tundra,3
