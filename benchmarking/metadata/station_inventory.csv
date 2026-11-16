@@ -1,0 +1,37 @@
+station_name,network,latitude,longitude,elevation_m,cmt,ecosystem,permafrost_zone,drainage_class,description,phase1_priority
+Deadhorse,GI-UAF,70.1997,-148.4597,10,CMT05,Tundra,Continuous,Upland,North Slope tundra on Arctic Coastal Plain,1
+Toolik,GI-UAF,68.6250,-149.5972,760,CMT05,Tundra,Continuous,Upland,Arctic foothills tundra near Toolik Lake,1
+Smith_Lake,GI-UAF,63.9897,-145.4019,700,CMT04,Boreal,Discontinuous,Lowland,Interior Alaska lowland with black spruce,2
+Healy,GI-UAF,63.8761,-149.0933,650,CMT04,Boreal,Discontinuous,Upland,Interior Alaska mixed boreal forest,2
+Council,GI-UAF,64.8447,-163.6769,10,CMT05,Shrub_Tundra,Discontinuous,Upland,Seward Peninsula coastal shrub tundra,3
+Kougarok,GI-UAF,65.4536,-164.7903,450,CMT05,Shrub_Tundra,Continuous,Upland,Seward Peninsula upland tundra,3
+Chandalar_Shelf,GI-UAF,67.6236,-149.7139,900,CMT05,Tundra,Continuous,Upland,Brooks Range alpine tundra,3
+Coldfoot,GI-UAF,67.2519,-150.1772,330,CMT05,Tundra,Discontinuous,Upland,Brooks Range foothills,3
+Galbraith,GI-UAF,68.4792,-149.4889,820,CMT05,Tundra,Continuous,Upland,Brooks Range northern slope,3
+West_Dock,GI-UAF,70.3747,-148.5483,1,CMT05,Tundra,Continuous,Lowland,Arctic Coastal Plain lowland tundra,3
+Franklin_Bluffs,GI-UAF,69.6731,-148.7211,150,CMT05,Tundra,Continuous,Upland,Arctic foothills tundra,3
+Imnavait,GI-UAF,68.6128,-149.2972,930,CMT05,Tundra,Continuous,Upland,Brooks Range tussock tundra,3
+Sagwon,GI-UAF,69.4294,-148.7161,280,CMT05,Tundra,Continuous,Upland,Arctic foothills tundra,3
+Bonanza_Creek,GI-UAF,64.7000,-148.3167,450,CMT04,Boreal,Discontinuous,Upland,Interior Alaska mixed boreal forest,3
+Caribou-Poker_Creeks,GI-UAF,65.1597,-147.5028,600,CMT04,Boreal,Discontinuous,Upland,Interior Alaska upland boreal forest,3
+
+# Phase 1 Priority:
+#   1 = Primary prototype stations (required)
+#   2 = Secondary prototype stations (optional)
+#   3 = Phase 2 expansion stations
+#
+# CMT (Climate-Mapping-Terrain vegetation classification):
+#   CMT04 = Boreal forest
+#   CMT05 = Arctic/alpine tundra
+#
+# Permafrost zones:
+#   Continuous: >90% permafrost coverage
+#   Discontinuous: 50-90% permafrost coverage
+#   Sporadic: 10-50% permafrost coverage
+#
+# Drainage class:
+#   Upland = Well-drained
+#   Lowland = Poorly-drained, may include wetlands
+#
+# Coordinates from Wang et al. (2018) PF-AK dataset and GI-UAF network documentation
+# CMT and ecosystem assignments are preliminary and need verification from site metadata
