@@ -1,0 +1,46 @@
+CRU-TS Data Download Instructions
+================================================================================
+CORRECTED URLs (November 16, 2026)
+
+Download CRU-TS v4.07 files from:
+https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/
+
+Required files (download and decompress):
+
+1. Temperature (tmp) - 163 MB compressed:
+   https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/tmp/cru_ts4.07.1901.2022.tmp.dat.nc.gz
+   → cru_ts4.07.1901.2022.tmp.dat.nc
+
+2. Precipitation (pre) - 225 MB compressed:
+   https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/pre/cru_ts4.07.1901.2022.pre.dat.nc.gz
+   → cru_ts4.07.1901.2022.pre.dat.nc
+
+3. Vapor Pressure (vap) - 147 MB compressed:
+   https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/vap/cru_ts4.07.1901.2022.vap.dat.nc.gz
+   → cru_ts4.07.1901.2022.vap.dat.nc
+
+4. Cloud Cover (cld) - 157 MB compressed:
+   https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/cld/cru_ts4.07.1901.2022.cld.dat.nc.gz
+   → cru_ts4.07.1901.2022.cld.dat.nc
+
+Total download size: ~692 MB compressed (~2-3 GB uncompressed)
+
+Quick download (bash):
+--------------------------------------------------------------------------------
+cd [THIS_DIRECTORY]
+
+wget https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/tmp/cru_ts4.07.1901.2022.tmp.dat.nc.gz
+wget https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/pre/cru_ts4.07.1901.2022.pre.dat.nc.gz
+wget https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/vap/cru_ts4.07.1901.2022.vap.dat.nc.gz
+wget https://crudata.uea.ac.uk/cru/data/hrg/cru_ts_4.07/cruts.2304141047.v4.07/cld/cru_ts4.07.1901.2022.cld.dat.nc.gz
+
+gunzip *.gz
+
+After download, run:
+python3 ../scripts/download_data/download_cru.py --cru-dir .
+
+Citation:
+--------------------------------------------------------------------------------
+Harris, I., Osborn, T.J., Jones, P. et al. (2020). Version 4 of the CRU TS
+monthly high-resolution gridded multivariate climate dataset. Sci Data 7, 109.
+https://doi.org/10.1038/s41597-020-0453-3
