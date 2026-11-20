@@ -4,6 +4,31 @@
 
 ---
 
+## Execution root on wiemip-postproc
+
+Phase 1 **runs and large data** live on the wiemip-postproc VM, not on ephemeral cloud agent workspaces.
+
+| Item | Path |
+|------|------|
+| **Canonical root** | `/mnt/disks/wiemip-data/TEM-GT-benchmarking/` |
+| **Repo checkout** | `.../repo/` (`dvmdostem-wiemip`, branch `cursor/phase1-benchmarking-setup-ba10`) |
+| **Workflow tree** | `.../benchmarking/` (symlink to `repo/benchmarking` after setup) |
+| **CRU staging** | `/mnt/disks/wiemip-data/tmp/*.nc` → `benchmarking/data/climate/CRU/` |
+
+**One-time or repeat bootstrap** (on wiemip-postproc):
+
+```bash
+bash /mnt/disks/wiemip-data/TEM-GT-benchmarking/repo/benchmarking/scripts/setup_wiemip_tem_gt_benchmarking.sh
+```
+
+Paths in the sections below are relative to `benchmarking/` unless noted. On wiemip-postproc, resolve them as  
+`/mnt/disks/wiemip-data/TEM-GT-benchmarking/benchmarking/...`.
+
+- Layout reference: `benchmarking/WIEMIP_LAYOUT.md`
+- Cursor plan (Context): Project Library `docs/ground-temperature-benchmarking-plan.md`
+
+---
+
 ## Overview
 
 Phase 1 establishes and validates the complete benchmarking workflow using 1-2 representative stations before scaling to all 72 PF-AK stations in Phase 2. This prototype phase ensures data pipelines, model configuration, and metric calculations work correctly.
@@ -526,6 +551,8 @@ None currently
 
 ## Next Actions (Priority Order)
 
+On **wiemip-postproc**, set `cd` to `/mnt/disks/wiemip-data/TEM-GT-benchmarking/benchmarking` (after running `setup_wiemip_tem_gt_benchmarking.sh`). In a git-only checkout, use `benchmarking/` at the repo root instead.
+
 1. **Execute data download**:
    ```bash
    cd benchmarking/scripts/download_data
@@ -612,8 +639,9 @@ Phase 1 is complete when:
 ## Contact and Support
 
 **Project**: DVM-DOS-TEM Ground Temperature Benchmarking  
-**Reference Plan**: `/cursor/stores/self/docs/ground-temperature-benchmarking-plan.md`  
-**Repository**: https://github.com/Elchin/dvmdostem-wiemip
+**WIEMIP root**: `/mnt/disks/wiemip-data/TEM-GT-benchmarking` (wiemip-postproc)  
+**Reference Plan**: Cursor Project Library `docs/ground-temperature-benchmarking-plan.md`  
+**Repository**: https://github.com/Elchin/dvmdostem-wiemip (branch `cursor/phase1-benchmarking-setup-ba10`)
 
 **Key References**:
 - Wang et al. (2018): *Earth System Science Data*, 10, 2311-2328
@@ -622,5 +650,5 @@ Phase 1 is complete when:
 
 ---
 
-**Last Updated**: November 16, 2026  
-**Status**: Phase 1 setup initiated, data acquisition scripts ready
+**Last Updated**: November 20, 2026  
+**Status**: Phase 1 setup initiated; wiemip-postproc layout script and WIEMIP_LAYOUT.md added
